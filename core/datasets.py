@@ -44,7 +44,7 @@ def dicom_to_3d_tensors(main_folder_path):
         img_shape = first_slice.pixel_array.shape
         series_description = subfolder
         num_slices = len(dicom_files)
-        volume = torch.zeros((num_slices, *img_shape), dtype=torch.float32)
+        volume = torch.zeros((num_slices, *img_shape), dtype=torch.float16)
         for i, file in enumerate(dicom_files):
             ds = pydicom.dcmread(os.path.join(subfolder_path, file))
             x = ds.pixel_array.astype(float)
