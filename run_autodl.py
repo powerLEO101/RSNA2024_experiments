@@ -14,8 +14,8 @@ for job in jobs:
         headers = {"Authorization": "eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1aWQiOjQyNjMwMCwidXVpZCI6ImNjYmRmZWYyLWI4ODQtNDM5YS1hNmM2LThjM2M2MGNiY2FmMiIsImlzX2FkbWluIjpmYWxzZSwiYmFja3N0YWdlX3JvbGUiOiIiLCJpc19zdXBlcl9hZG1pbiI6ZmFsc2UsInN1Yl9uYW1lIjoiIiwidGVuYW50IjoiYXV0b2RsIiwidXBrIjoiIn0.JCFY0Rt9JWpRFDIOzlY86V7jhKZFCvJ2Hrjy0HVKhw3v1ULOsNhAhVhvEzyYUEkxZ_lhgYYHd6LpGEmTRi-4BA"}
         resp = requests.post("https://www.autodl.com/api/v1/wechat/message/send",
                             json={
-                                "title": "RSNA实验失败",
-                                "name": "RSNA实验失败",
+                                "title": f"RSNA实验失败{job}",
+                                "name": f"RSNA实验失败{job}",
                                 "content": "bad"
                             }, headers = headers)
         print(resp.content.decode())
@@ -24,8 +24,8 @@ for job in jobs:
         headers = {"Authorization": "eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1aWQiOjQyNjMwMCwidXVpZCI6ImNjYmRmZWYyLWI4ODQtNDM5YS1hNmM2LThjM2M2MGNiY2FmMiIsImlzX2FkbWluIjpmYWxzZSwiYmFja3N0YWdlX3JvbGUiOiIiLCJpc19zdXBlcl9hZG1pbiI6ZmFsc2UsInN1Yl9uYW1lIjoiIiwidGVuYW50IjoiYXV0b2RsIiwidXBrIjoiIn0.JCFY0Rt9JWpRFDIOzlY86V7jhKZFCvJ2Hrjy0HVKhw3v1ULOsNhAhVhvEzyYUEkxZ_lhgYYHd6LpGEmTRi-4BA"}
         resp = requests.post("https://www.autodl.com/api/v1/wechat/message/send",
                             json={
-                                "title": "RSNA实验成功",
-                                "name": "RSNA实验成功",
+                                "title": f"RSNA实验成功{job}",
+                                "name": f"RSNA实验成功{job}",
                                 "content": "good"
                             }, headers = headers)
         print(resp.content.decode())
