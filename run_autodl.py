@@ -29,3 +29,4 @@ for job in jobs:
                                 "content": "good"
                             }, headers = headers)
         print(resp.content.decode())
+os.system("/usr/bin/shutdown")
