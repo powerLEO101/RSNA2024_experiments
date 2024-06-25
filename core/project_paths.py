@@ -1,2 +1,2 @@
-base_path = '/Users/leo101/Kaggle/rsna-2024-lumbar-spine-degenerative-classification/input/rsna-2024-lumbar-spine-degenerative-classification'
-save_path = '/Users/leo101/Kaggle/rsna-2024-lumbar-spine-degenerative-classification/checkpoints'
+base_path = '/autodl-tmp/input/rsna-2024-lumbar-spine-degenerative-classification'
+save_path = '/autodl-tmp/checkpoints'
