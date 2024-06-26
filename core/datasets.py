@@ -37,22 +37,25 @@ def dicom_to_3d_tensors(main_folder_path):
         if not os.path.isdir(subfolder_path):
             continue
         dicom_files = [f for f in os.listdir(subfolder_path) if f.endswith('.dcm')]
-        if not dicom_files:
-            continue
-        dicom_files.sort(key=lambda x: int(x[:-4]))
-        first_slice = pydicom.dcmread(os.path.join(subfolder_path, dicom_files[0]))
-        img_shape = first_slice.pixel_array.shape
-        series_description = subfolder
-        num_slices = len(dicom_files)
-        volume = torch.zeros((num_slices, *img_shape), dtype=torch.float16)
-        for i, file in enumerate(dicom_files):
-            ds = pydicom.dcmread(os.path.join(subfolder_path, file))
-            x = ds.pixel_array.astype(float)
-            if x.shape == volume.shape[1:]:
-                volume[i, :, :] = torch.tensor(x)
-            else:
-                volume = volume[:i]
-                break
+        if os.path.isfile(os.path.join(subfolder_path, 'data.pt')):
+            volume = torch.load(os.path.join(subfolder_path, 'data.pt'))
+        else:
+            if not dicom_files:
+                continue
+            dicom_files.sort(key=lambda x: int(x[:-4]))
+            first_slice = pydicom.dcmread(os.path.join(subfolder_path, dicom_files[0]))
+            img_shape = first_slice.pixel_array.shape
+            series_description = subfolder
+            num_slices = len(dicom_files)
+            volume = torch.zeros((num_slices, *img_shape), dtype=torch.float16)
+            for i, file in enumerate(dicom_files):
+                ds = pydicom.dcmread(os.path.join(subfolder_path, file))
+                x = ds.pixel_array.astype(float)
+                if x.shape == volume.shape[1:]:
+                    volume[i, :, :] = torch.tensor(x)
+                else:
+                    volume = volume[:i]
+                    break
         result.append(volume)
         desc.append(find_description(study_id, subfolder))
     return result, desc
