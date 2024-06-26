@@ -1,9 +1,11 @@
 import os
+import sys
 import torch
 import wandb
 import torch.nn as nn
 import torch.optim as optim
 
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 import core.utils as utils
 import core.models as models
 import core.datasets as datasets
@@ -104,13 +106,19 @@ def main():
     save_weights = []
     for fold_n in range(config['folds']):
         train_loader, valid_loader = get_loaders(df, data, fold_n)
-        model, global_final_valid_loss_ = train_one_fold(train_loader, valid_loader, fold_n)
+        model = train_one_fold(train_loader, valid_loader, fold_n)
         accelerator.wait_for_everyone()
         if accelerator.is_local_main_process:
-            save_weights.append(model.cpu().module.state_dict())
+            torch.save((model.cpu().state_dict()), f'./{fold_n}.pt')
+
         accelerator.free_memory()
+        model = None
 
     if accelerator.is_local_main_process:
+        data = None
+        for fold_n in range(config['folds']):
+            save_weights.append(torch.load(f'./{fold_n}.pt'))
+            os.remove(f'./{fold_n}.pt')
         torch.save(save_weights, f'{project_paths.save_path}/{file_name}.pt')
 
 if __name__ == "__main__":

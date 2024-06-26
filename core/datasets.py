@@ -109,14 +109,11 @@ class Normalizer(object):
         else:
             self.n_fun = self.no_normalize
     
-    def __call__(self, x):
-        result = []
-        for i in range(len(x)):
-            result.append(self.n_fun(x[i]))
-        return result
+    def __call__(self, x, **kargs):
+        return self.n_fun(x, **kargs)
     
-    def scale_normalize(self, x):
-        x = (x - x.min()) / (x.max() - x.min())
+    def scale_normalize(self, x, min, max):
+        x = (x - min) / (max - min)
         return x
     
     def no_normalize(self, x):
@@ -156,16 +153,19 @@ class ImagePreprocessor(object):
         return x
     
     def baseline_preprocess(self, x, desc):
-        x = self.normalize(x)
         result = torch.zeros(6, 256, 256)
         if 'Sagittal T1' in desc:
             data = x[desc.index('Sagittal T1')]
+            min, max = data.min(), data.max()
             data_ = data[len(data) - 1 : len(data) + 2]
+            data_ = self.normalize(data_, min=min, max=max)
             data_ = self.augment(data_)
             result[:3, :, :] = data_
         if 'Sagittal T2/STIR' in desc:
             data = x[desc.index('Sagittal T2/STIR')]
+            min, max = data.min(), data.max()
             data_ = data[len(data) - 1 : len(data) + 2]
+            data_ = self.normalize(data_, min=min, max=max)
             data_ = self.augment(data_)
             result[3:6, :, :] = data_
         return result

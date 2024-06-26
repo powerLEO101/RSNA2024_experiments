@@ -41,7 +41,8 @@ def valid_one_epoch(model, loader, criterion, optimizer, lr_scheduler, epoch, ac
     for step, batch in bar:
         # B C X Y
         image, label_ = batch['image'], batch['label']
-        pred_label_ = model(image)
+        with torch.no_grad():
+            pred_label_ = model(image)
         loss = criterion(pred_label_, label_)
         pred_label, label = accelerator.gather_for_metrics((pred_label_, label_))
         df_pred.extend(pred_label.tolist())
