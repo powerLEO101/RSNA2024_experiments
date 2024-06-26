@@ -5,4 +5,4 @@ if 'LOCAL_TEST' in environ:
     save_path = '/Users/leo101/Kaggle/rsna-2024-lumbar-spine-degenerative-classification/checkpoints'
 else:
     base_path = '/root/autodl-tmp/input/rsna-2024-lumbar-spine-degenerative-classification'
-    save_path = '/root/autodl-tmp/checkpoints'
+    save_path = '/root/autodl-fs'
