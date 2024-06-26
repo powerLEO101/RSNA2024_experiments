@@ -110,9 +110,10 @@ class Normalizer(object):
             self.n_fun = self.no_normalize
     
     def __call__(self, x):
+        result = []
         for i in range(len(x)):
-            x[i] = self.n_fun(x[i])
-        return x
+            result.append(self.n_fun(x[i]))
+        return result
     
     def scale_normalize(self, x):
         x = (x - x.min()) / (x.max() - x.min())
