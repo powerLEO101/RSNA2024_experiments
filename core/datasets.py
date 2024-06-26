@@ -60,11 +60,14 @@ def dicom_to_3d_tensors(main_folder_path):
         desc.append(find_description(study_id, subfolder))
     return result, desc
 
-def get_data(df):
+def get_data(df, drop_rate=0.2):
     print('Loading data into RAM')
     data = {}
     for filepath, study_id in tqdm(df[['filepath', 'study_id']].values):
-        data[study_id] = dicom_to_3d_tensors(filepath)
+        if np.random.rand() < drop_rate:
+            data[study_id] = filepath
+        else:
+            data[study_id] = dicom_to_3d_tensors(filepath)
     return data
 
 def get_label(meta):
@@ -183,10 +186,17 @@ class RSNADataset(Dataset):
 
     def __getitem__(self, idx): # every subject has at least one saggital view
         meta = dict(self.df.iloc[idx])
-        image, desc = self.data[meta['study_id']]
+        image, desc = self.get_data_ram_or_disk(meta)
         image = self.preprocess(image, desc)
         label = get_label(meta)
         return {
             'image': image,
             'label': label
         }
+    
+    def get_data_ram_or_disk(self, meta):
+        if isinstance(self.data[meta['study_id']], str):
+            return dicom_to_3d_tensors(self.data[meta['study_id']])
+        else:
+            return self.data[meta['study_id']]
+            
