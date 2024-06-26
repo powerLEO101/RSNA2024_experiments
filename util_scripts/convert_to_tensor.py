@@ -54,7 +54,7 @@ def dicom_to_3d_tensors(main_folder_path):
                 volume = volume[:i]
                 break
         torch.save(volume, os.path.join(subfolder_path, 'data.pt'))
-        print(f"{subfolder} saved on {os.path.join(subfolder_path, 'data.pt')}")
+        #print(f"{subfolder} saved on {os.path.join(subfolder_path, 'data.pt')}")
 
 df = get_df()
 for filepath, study_id in tqdm(df[['filepath', 'study_id']].values):
