@@ -60,7 +60,7 @@ def dicom_to_3d_tensors(main_folder_path):
         desc.append(find_description(study_id, subfolder))
     return result, desc
 
-def get_data(df, drop_rate=0.2):
+def get_data(df, drop_rate=0.1):
     print('Loading data into RAM')
     data = {}
     for filepath, study_id in tqdm(df[['filepath', 'study_id']].values):

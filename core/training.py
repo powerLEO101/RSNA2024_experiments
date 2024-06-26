@@ -17,22 +17,18 @@ def train_one_epoch(model, loader, criterion, optimizer, lr_scheduler, epoch):
         # B C X Y
         image = batch['image']
         label = batch['label']
-
         optimizer.zero_grad()
         pred_labels = model(image)
         loss = criterion(pred_labels, label)
-
         running_loss += (loss.item() - running_loss) / (step + 1)
-
         accelerator.backward(loss)
         optimizer.step()
         lr_scheduler.step()
-
         lr = optimizer.param_groups[0]['lr']
         if accelerator.is_local_main_process:
             wandb.log({f'lr': lr, 'train_step_loss': loss.item()})
-
         bar.set_postfix_str(f'Epoch: {epoch}, lr: {lr:.2e}, train_loss: {running_loss: .4e}')
+        accelerator.free_memory()
 
     if accelerator.is_local_main_process:
         wandb.log({f'train_epoch_loss': running_loss})
@@ -56,6 +52,7 @@ def valid_one_epoch(model, loader, criterion, optimizer, lr_scheduler, epoch):
         df_sol.extend(label.tolist())
         running_loss += (loss.item() - running_loss) / (step + 1)
         bar.set_postfix_str(f'Epoch: {epoch}, Valid_loss: {running_loss}')
+        accelerator.free_memory()
 
     accelerator.print(f'Valid loss: {running_loss}')
 
