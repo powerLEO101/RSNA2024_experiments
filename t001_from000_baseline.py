@@ -12,7 +12,7 @@ import core.project_paths as project_paths
 
 from os import environ
 from accelerate.utils import set_seed
-from core.training import accelerator
+from accelerate import Accelerator
 from torch.utils.data import DataLoader
 from transformers import get_cosine_schedule_with_warmup
 
@@ -26,6 +26,7 @@ config = {
     'model_name': 'timm/efficientnet_b0.ra_in1k'
 }
 file_name = os.path.basename(__file__)[:-3]
+accelerator = Accelerator()
 
 def train_one_fold(train_loader, valid_loader, fold_n):
     model = models.BaselineModel(model_name=config['model_name'])
@@ -47,11 +48,21 @@ def train_one_fold(train_loader, valid_loader, fold_n):
         )
 
     for epoch in range(config['epoch']):
-        training.train_one_epoch(model=model, loader=train_loader, criterion=criterion, 
-                        optimizer=optimizer, lr_scheduler=lr_scheduler, epoch=epoch)
+        training.train_one_epoch(model=model, 
+                                 loader=train_loader, 
+                                 criterion=criterion, 
+                                 optimizer=optimizer, 
+                                 lr_scheduler=lr_scheduler, 
+                                 epoch=epoch, 
+                                 accelerator=accelerator)
         
-        training.valid_one_epoch(model=model, loader=valid_loader, criterion=criterion, 
-                        optimizer=optimizer, lr_scheduler=lr_scheduler, epoch=epoch)
+        training.valid_one_epoch(model=model, 
+                                 loader=valid_loader, 
+                                 criterion=criterion, 
+                                 optimizer=optimizer, 
+                                 lr_scheduler=lr_scheduler, 
+                                 epoch=epoch, 
+                                 accelerator=accelerator)
         if accelerator.is_local_main_process:
             wandb.log({f'epoch': epoch})
     if accelerator.is_local_main_process:

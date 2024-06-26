@@ -3,12 +3,8 @@ import wandb
 import pandas as pd
 
 from tqdm import tqdm
-from accelerate import Accelerator
 
-accelerator = Accelerator()
-device = accelerator.device
-
-def train_one_epoch(model, loader, criterion, optimizer, lr_scheduler, epoch):
+def train_one_epoch(model, loader, criterion, optimizer, lr_scheduler, epoch, accelerator):
     running_loss = 0.0
     model.train()
     bar = tqdm(enumerate(loader), total=len(loader), disable=not accelerator.is_local_main_process)
@@ -34,7 +30,7 @@ def train_one_epoch(model, loader, criterion, optimizer, lr_scheduler, epoch):
         wandb.log({f'train_epoch_loss': running_loss})
 
 
-def valid_one_epoch(model, loader, criterion, optimizer, lr_scheduler, epoch):
+def valid_one_epoch(model, loader, criterion, optimizer, lr_scheduler, epoch, accelerator):
     running_loss = 0.0
     global global_step
     model.eval()
