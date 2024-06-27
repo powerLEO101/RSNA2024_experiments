@@ -1,4 +1,5 @@
 # %%
+IS_INFER = False
 import os
 import cv2
 import torch
@@ -15,8 +16,12 @@ from .project_paths import base_path
 from .utils import display_images
 
 def find_description(study_id, series_id):
-    return df_meta_f[(df_meta_f['study_id'] == int(study_id)) & 
-                (df_meta_f['series_id'] == int(series_id))]['series_description'].iloc[0]
+    if IS_INFER:
+        return df_meta_f_[(df_meta_f_['study_id'] == int(study_id)) & 
+                    (df_meta_f_['series_id'] == int(series_id))]['series_description'].iloc[0]
+    else:
+        return df_meta_f[(df_meta_f['study_id'] == int(study_id)) & 
+                    (df_meta_f['series_id'] == int(series_id))]['series_description'].iloc[0]
 
 def get_df():
     df = pd.read_csv(f'{base_path}/train.csv')
@@ -26,6 +31,13 @@ def get_df():
     folds = KFold(n_splits=5, shuffle=True, random_state=kfold_random_seed)
     for fold, (train_index, valid_index) in enumerate(folds.split(df)):
         df.loc[valid_index, 'fold'] = int(fold)
+    return df
+
+def get_df_infer():
+    part_1 = os.listdir(f'../input/rsna-2024-lumbar-spine-degenerative-classification/test_images')
+    part_1 = list(filter(lambda x: x.find('.DS') == -1, part_1))
+    df = [{'study_id': x, 'file_path': f"..input/test_images/{x}"} for x in part_1]
+    df = pd.DataFrame(df)
     return df
 
 def dicom_to_3d_tensors(main_folder_path):
@@ -98,6 +110,7 @@ def get_label(meta):
     return label
 
 df_meta_f = pd.read_csv(f'{base_path}/train_series_descriptions.csv')
+df_meta_f_ = pd.read_csv(f'{base_path}/test_series_descriptions.csv')
 kfold_random_seed = 23
 df = get_df()
 
@@ -181,6 +194,7 @@ class RSNADataset(Dataset):
         self.df = df
         self.data = data
         self.preprocess = ImagePreprocessor(method, normalize, augment)
+        self.is_infer = IS_INFER
     
     def __len__(self):
         return len(self.df)
@@ -189,11 +203,18 @@ class RSNADataset(Dataset):
         meta = dict(self.df.iloc[idx])
         image, desc = self.get_data_ram_or_disk(meta)
         image = self.preprocess(image, desc)
-        label = get_label(meta)
-        return {
-            'image': image,
-            'label': label
-        }
+        
+        if self.is_infer:
+            return {
+                'image': image.unsqueeze(0),
+                'name': meta['study_id']
+            }
+        else:
+            label = get_label(meta)
+            return {
+                'image': image,
+                'label': label,
+            }
     
     def get_data_ram_or_disk(self, meta):
         if isinstance(self.data[meta['study_id']], str):
