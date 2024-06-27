@@ -156,6 +156,8 @@ class ImagePreprocessor(object):
         self.augment = ImageAugmentor(augment)
         if method == 'baseline':
             self.preprocess = self.baseline_preprocess
+        elif method == '10slice':
+            self.preprocess = self.baseline_v2_preprocess
         else:
             self.preprocess = self.no_preprocess
     
@@ -170,17 +172,35 @@ class ImagePreprocessor(object):
         if 'Sagittal T1' in desc:
             data = x[desc.index('Sagittal T1')]
             min, max = data.min(), data.max()
-            data_ = data[len(data) - 1 : len(data) + 2]
+            data_ = data[int(len(data) / 2) - 1 : int(len(data) / 2) + 2]
             data_ = self.normalize(data_, min=min, max=max)
             data_ = self.augment(data_)
             result[:3, :, :] = data_
         if 'Sagittal T2/STIR' in desc:
             data = x[desc.index('Sagittal T2/STIR')]
             min, max = data.min(), data.max()
-            data_ = data[len(data) - 1 : len(data) + 2]
+            data_ = data[int(len(data) / 2) - 1 : int(len(data) / 2) + 2]
             data_ = self.normalize(data_, min=min, max=max)
             data_ = self.augment(data_)
             result[3:6, :, :] = data_
+        return result
+    
+    def baseline_v2_preprocess(self, x, desc):
+        result = torch.zeros(20, 256, 256)
+        if 'Sagittal T1' in desc:
+            data = x[desc.index('Sagittal T1')]
+            min_, max_ = data.min(), data.max()
+            data_ = data[max(int(len(data) / 2) - 5, 0) : int(len(data) / 2) + 5]
+            data_ = self.normalize(data_, min=min_, max=max_)
+            data_ = self.augment(data_)
+            result[0:data_.shape[0], :, :] = data_
+        if 'Sagittal T2/STIR' in desc:
+            data = x[desc.index('Sagittal T2/STIR')]
+            min_, max_ = data.min(), data.max()
+            data_ = data[max(int(len(data) / 2) - 5, 0) : int(len(data) / 2) + 5]
+            data_ = self.normalize(data_, min=min_, max=max_)
+            data_ = self.augment(data_)
+            result[10:10 + data_.shape[0], :, :] = data_
         return result
 
 class RSNADataset(Dataset):

@@ -21,17 +21,18 @@ from transformers import get_cosine_schedule_with_warmup
 config = {
     'lr': 1e-3,
     'wd': 1e-3,
-    'epoch': 20,
+    'epoch': 10,
     'seed': 22,
     'folds': 5,
     'batch_size': 64 if not 'LOCAL_TEST' in environ else 8,
-    'model_name': 'timm/efficientnet_b0.ra_in1k'
+    'model_name': 'timm/efficientnet_b0.ra_in1k',
+    'method': '10slice'
 }
 file_name = os.path.basename(__file__)[:-3]
 accelerator = Accelerator()
 
 def train_one_fold(train_loader, valid_loader, fold_n):
-    model = models.BaselineModel(model_name=config['model_name'])
+    model = models.BaselineModel(model_name=config['model_name'], in_chans=20)
     accelerator.print(f'Training for {file_name} on FOLD #{fold_n}...')
     criterion = nn.BCEWithLogitsLoss()
     optimizer = optim.AdamW(model.parameters(), lr=config['lr'], weight_decay=config['wd'])
@@ -84,8 +85,8 @@ def get_loaders(df, data, fold_n):
 
     print(f'Data is split into train: {len(train_df)}, and valid: {len(valid_df)}')
     
-    train_set = datasets.RSNADataset(train_df, data)
-    valid_set = datasets.RSNADataset(valid_df, data)
+    train_set = datasets.RSNADataset(train_df, data, method=config['method'])
+    valid_set = datasets.RSNADataset(valid_df, data, method=config['method'])
     train_loader =  DataLoader(train_set, 
                                 batch_size=config['batch_size'], 
                                 shuffle=True, 
@@ -102,7 +103,7 @@ def get_loaders(df, data, fold_n):
 def main(): 
     set_seed(config['seed'])
     df = datasets.get_df()
-    data = datasets.get_data(df)
+    data = datasets.get_data(df, drop_rate=0.2)
     save_weights = []
     for fold_n in range(config['folds']):
         train_loader, valid_loader = get_loaders(df, data, fold_n)
