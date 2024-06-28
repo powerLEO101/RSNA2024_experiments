@@ -1,5 +1,5 @@
 jobs = [
-    'python3 tries/t002_from001_10slice.py'
+    'python3 tries/t003_from002_sum_reduction.py'
     ]
 
 import os
