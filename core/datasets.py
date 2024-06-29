@@ -1,5 +1,4 @@
 # %%
-IS_INFER = False
 import os
 import cv2
 import torch
@@ -14,6 +13,14 @@ from torchvision.transforms import v2
 from sklearn.model_selection import KFold
 from .project_paths import base_path
 from .utils import display_images
+
+IS_INFER = False
+df_meta_f = pd.read_csv(f'{base_path}/train_series_descriptions.csv')
+df_meta_f_ = pd.read_csv(f'{base_path}/test_series_descriptions.csv')
+df_label_co = pd.read_csv(f'{base_path}/train_label_coordinates.csv')
+# df_label_co['new_id'] = [f'{x}_{y}' for x, y in zip(df_label_co['study_id'], df_label_co['series_id'])]
+# df_label_co = df_label_co.set_index('series_id')
+kfold_random_seed = 23
 
 def find_description(study_id, series_id):
     if IS_INFER:
@@ -36,13 +43,14 @@ def get_df():
 def get_df_infer():
     part_1 = os.listdir(f'../input/rsna-2024-lumbar-spine-degenerative-classification/test_images')
     part_1 = list(filter(lambda x: x.find('.DS') == -1, part_1))
-    df = [{'study_id': x, 'file_path': f"..input/test_images/{x}"} for x in part_1]
+    df = [{'study_id': x, 'filepath': f"..input/test_images/{x}"} for x in part_1]
     df = pd.DataFrame(df)
     return df
 
 def dicom_to_3d_tensors(main_folder_path):
     result = []
     desc = []
+    series_id = []
     study_id = main_folder_path.split('/')[-1]
     for subfolder in os.listdir(main_folder_path):
         subfolder_path = os.path.join(main_folder_path, subfolder)
@@ -70,7 +78,8 @@ def dicom_to_3d_tensors(main_folder_path):
                     break
         result.append(volume)
         desc.append(find_description(study_id, subfolder))
-    return result, desc
+        series_id.append(subfolder)
+    return result, desc, series_id
 
 def get_data(df, drop_rate=0.1):
     print('Loading data into RAM')
@@ -82,7 +91,7 @@ def get_data(df, drop_rate=0.1):
             data[study_id] = dicom_to_3d_tensors(filepath)
     return data
 
-def get_label(meta):
+def get_label(meta, label_name=None):
     keys = ['spinal_canal_stenosis_l1_l2',
        'spinal_canal_stenosis_l2_l3', 'spinal_canal_stenosis_l3_l4',
        'spinal_canal_stenosis_l4_l5', 'spinal_canal_stenosis_l5_s1',
@@ -106,13 +115,10 @@ def get_label(meta):
     label = torch.zeros(25 * 3)
     for i, name in enumerate(keys):
         if meta[name] == -1: continue
+        if label_name is not None and label_name != name:
+            continue
         label[int(i * 3 + meta[name])] = 1
     return label
-
-df_meta_f = pd.read_csv(f'{base_path}/train_series_descriptions.csv')
-df_meta_f_ = pd.read_csv(f'{base_path}/test_series_descriptions.csv')
-kfold_random_seed = 23
-df = get_df()
 
 class Normalizer(object):
     def __init__(self, n_type):
@@ -158,11 +164,13 @@ class ImagePreprocessor(object):
             self.preprocess = self.baseline_preprocess
         elif method == '10slice':
             self.preprocess = self.baseline_v2_preprocess
+        elif method == 't004':
+            self.preprocess = self.t004_preprocess
         else:
             self.preprocess = self.no_preprocess
     
-    def __call__(self, x, desc):
-        return self.preprocess(x, desc)
+    def __call__(self, *args):
+        return self.preprocess(*args)
     
     def no_preprocess(self, x, desc):
         return x
@@ -202,6 +210,23 @@ class ImagePreprocessor(object):
             data_ = self.augment(data_)
             result[10:10 + data_.shape[0], :, :] = data_
         return result
+    
+    def t004_preprocess(self, x, desc, series_id):
+        random_index = np.random.randint(len(desc))
+        min_, max_ = x[random_index].min(), x[random_index].max()
+        meta = df_label_co[df_label_co['series_id'] == int(series_id[random_index])].sample(1)
+        result = torch.zeros(3, 256, 256)
+        for i in [-1, 0, 1]:
+            current_index = int(meta['instance_number']) + i
+            if current_index < 0 or current_index >= x[random_index].shape[0]:
+                continue
+            data = x[random_index][current_index].unsqueeze(0)
+            data = self.normalize(data, min=min_, max=max_)
+            data = self.augment(data)
+            result[i + 1, :, :] = data
+        label_name = f"{meta['condition'].values[0].replace(' ', '_').lower()}_{meta['level'].values[0].replace('/', '_').lower()}"
+        return result, label_name
+
 
 class RSNADataset(Dataset):
     def __init__(self, 
@@ -211,6 +236,10 @@ class RSNADataset(Dataset):
                  normalize='scale', 
                  augment='baseline'):
         super().__init__()
+        self.method = method
+        self.normalize = normalize
+        self.augment = augment
+
         self.df = df
         self.data = data
         self.preprocess = ImagePreprocessor(method, normalize, augment)
@@ -221,8 +250,11 @@ class RSNADataset(Dataset):
 
     def __getitem__(self, idx): # every subject has at least one saggital view
         meta = dict(self.df.iloc[idx])
-        image, desc = self.get_data_ram_or_disk(meta)
-        image = self.preprocess(image, desc)
+        image, desc, series_id = self.get_data_ram_or_disk(meta)
+        if self.method == 't004':
+            image, label_name = self.preprocess(image, desc, series_id)
+        else:
+            image = self.preprocess(image, desc)
         
         if self.is_infer:
             return {
@@ -230,7 +262,7 @@ class RSNADataset(Dataset):
                 'name': meta['study_id']
             }
         else:
-            label = get_label(meta)
+            label = get_label(meta, label_name)
             return {
                 'image': image,
                 'label': label,

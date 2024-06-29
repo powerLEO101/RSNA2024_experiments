@@ -3,6 +3,9 @@ import wandb
 import pandas as pd
 
 from tqdm import tqdm
+from os import environ
+
+IS_LOCAL = bool('LOCAL_TEST' in environ)
 
 def train_one_epoch(model, loader, criterion, optimizer, lr_scheduler, epoch, accelerator):
     running_loss = 0.0
@@ -21,12 +24,12 @@ def train_one_epoch(model, loader, criterion, optimizer, lr_scheduler, epoch, ac
         optimizer.step()
         lr_scheduler.step()
         lr = optimizer.param_groups[0]['lr']
-        if accelerator.is_local_main_process:
+        if accelerator.is_local_main_process and not IS_LOCAL:
             wandb.log({f'lr': lr, 'train_step_loss': loss.item()})
         bar.set_postfix_str(f'Epoch: {epoch}, lr: {lr:.2e}, train_loss: {running_loss: .4e}')
         accelerator.free_memory()
 
-    if accelerator.is_local_main_process:
+    if accelerator.is_local_main_process and not IS_LOCAL:
         wandb.log({f'train_epoch_loss': running_loss})
 
 
@@ -59,5 +62,5 @@ def valid_one_epoch(model, loader, criterion, optimizer, lr_scheduler, epoch, ac
     # auc_score = score(df_sol, df_pred)
     # accelerator.print(f'Auc Score: {auc_score}')
 
-    if accelerator.is_local_main_process:
+    if accelerator.is_local_main_process and not IS_LOCAL:
         wandb.log({f'valid_epoch_loss': running_loss})

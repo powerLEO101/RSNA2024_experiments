@@ -12,7 +12,7 @@ def display_images(images, title, max_images_per_row=4):
     if num_rows > 1:
         axes = axes.flatten()
     else:
-        axes = [axes]  # Make it iterable for consistency
+        axes = axes  # Make it iterable for consistency
 
     # Plot each image
     for idx, image in enumerate(images):
