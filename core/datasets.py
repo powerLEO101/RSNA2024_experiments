@@ -113,6 +113,8 @@ def get_label(meta, label_name=None):
        'right_subarticular_stenosis_l4_l5',
        'right_subarticular_stenosis_l5_s1']
     label = torch.zeros(25 * 3)
+    if label_name == -1:
+        return label
     for i, name in enumerate(keys):
         if meta[name] == -1: continue
         if label_name is not None and label_name != name:
@@ -214,10 +216,13 @@ class ImagePreprocessor(object):
     def t004_preprocess(self, x, desc, series_id):
         random_index = np.random.randint(len(desc))
         min_, max_ = x[random_index].min(), x[random_index].max()
-        meta = df_label_co[df_label_co['series_id'] == int(series_id[random_index])].sample(1)
+        meta = df_label_co[df_label_co['series_id'] == int(series_id[random_index])]
         result = torch.zeros(3, 256, 256)
+        if len(meta) == 0: # 2 studies have diagnoses without label coor
+            return result, -1
+        meta = meta.sample(1)
         for i in [-1, 0, 1]:
-            current_index = int(meta['instance_number']) + i
+            current_index = int(meta['instance_number'].values[0]) + i
             if current_index < 0 or current_index >= x[random_index].shape[0]:
                 continue
             data = x[random_index][current_index].unsqueeze(0)
