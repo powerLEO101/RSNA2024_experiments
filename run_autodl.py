@@ -1,5 +1,5 @@
 jobs = [
-    'python3 tries/t004_from002_quality_slices.py'
+    'python3 tries/t005_from004_longer_epoch.py'
     ]
 
 import os

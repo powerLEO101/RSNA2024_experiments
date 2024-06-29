@@ -43,7 +43,7 @@ def get_df():
 def get_df_infer():
     part_1 = os.listdir(f'../input/rsna-2024-lumbar-spine-degenerative-classification/test_images')
     part_1 = list(filter(lambda x: x.find('.DS') == -1, part_1))
-    df = [{'study_id': x, 'filepath': f"..input/test_images/{x}"} for x in part_1]
+    df = [{'study_id': x, 'filepath': f"../input/rsna-2024-lumbar-spine-degenerative-classification/test_images/{x}"} for x in part_1]
     df = pd.DataFrame(df)
     return df
 
@@ -214,6 +214,24 @@ class ImagePreprocessor(object):
         return result
     
     def t004_preprocess(self, x, desc, series_id):
+        if IS_INFER:
+            result_all = []
+            for index in range(len(desc)):
+                min_, max_ = x[index].min(), x[index].max()
+                for instance_number in range(x[index].shape[0]):
+                    result = torch.zeros(3, 256, 256)
+                    for i in [-1, 0, 1]:
+                        current_index = instance_number + i
+                        if current_index < 0 or current_index >= x[index].shape[0]:
+                            continue
+                        data = x[index][current_index].unsqueeze(0)
+                        data = self.normalize(data, min=min_, max=max_)
+                        data = self.augment(data)
+                        result[i + 1, :, :] = data
+                    result_all.append(result)
+            result_all = torch.stack(result_all, dim=0)
+            return result_all, -1
+
         random_index = np.random.randint(len(desc))
         min_, max_ = x[random_index].min(), x[random_index].max()
         meta = df_label_co[df_label_co['series_id'] == int(series_id[random_index])]
