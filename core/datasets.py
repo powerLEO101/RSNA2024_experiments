@@ -114,7 +114,10 @@ def get_label(meta, label_name=None, drop_partial_label=False):
        'right_subarticular_stenosis_l5_s1']
     label = []
     if label_name == -1:
-        return -1
+        if drop_partial_label:
+            return torch.zeros(30)
+        else:
+            return torch.zeros(75)
     for i, name in enumerate(keys):
         if meta[name] == -1:
             if (not drop_partial_label) or label_name in name:
@@ -289,7 +292,7 @@ class ImagePreprocessor(object):
         meta = df_label_co[df_label_co['series_id'] == int(series_id[random_index])]
         result = torch.zeros(3, 256, 256)
         if len(meta) == 0: # 2 studies have diagnoses without label coor
-            return result, -1
+            return result, -1, 0, 0
         meta = meta.sample(1)
         original_size = x[random_index].shape
         pos_x, pos_y = float(meta['y'].iloc[0] / original_size[1] * 256), float(meta['x'].iloc[0] / original_size[2] * 256)# xy is inverted in numpy
