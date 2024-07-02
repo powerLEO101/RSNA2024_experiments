@@ -64,3 +64,56 @@ def valid_one_epoch(model, loader, criterion, optimizer, lr_scheduler, epoch, ac
 
     if accelerator.is_local_main_process and not IS_LOCAL:
         wandb.log({f'valid_epoch_loss': running_loss})
+
+
+def train_one_epoch_w_pos(model, loader, criterion, optimizer, lr_scheduler, epoch, accelerator):
+    running_loss = 0.0
+    model.train()
+    bar = tqdm(enumerate(loader), total=len(loader), disable=not accelerator.is_local_main_process)
+
+    for step, batch in bar:
+        # B C X Y
+        image = batch['image']
+        head = batch['head']
+        label = batch['label']
+        pos = batch['pos']
+        optimizer.zero_grad()
+        pred_labels = model(image, head)
+        loss = criterion(pred_labels, [label, pos])
+        running_loss += (loss.item() - running_loss) / (step + 1)
+        accelerator.backward(loss)
+        optimizer.step()
+        lr_scheduler.step()
+        lr = optimizer.param_groups[0]['lr']
+        if accelerator.is_local_main_process and not IS_LOCAL:
+            wandb.log({f'lr': lr, 'train_step_loss': loss.item()})
+        bar.set_postfix_str(f'Epoch: {epoch}, lr: {lr:.2e}, train_loss: {running_loss: .4e}')
+        accelerator.free_memory()
+
+    if accelerator.is_local_main_process and not IS_LOCAL:
+        wandb.log({f'train_epoch_loss': running_loss})
+
+def valid_one_epoch_w_pos(model, loader, criterion, optimizer, lr_scheduler, epoch, accelerator):
+    running_loss = 0.0
+    global global_step
+    model.eval()
+    bar = tqdm(enumerate(loader), total=len(loader), disable=not accelerator.is_local_main_process)
+
+    df_pred = []
+    df_sol = []
+    for step, batch in bar:
+        # B C X Y
+        image = batch['image']
+        head = batch['head']
+        label = batch['label']
+        pos = batch['pos']
+        with torch.no_grad():
+            pred_label = model(image, head)
+        loss = criterion(pred_label, [label, pos])
+        running_loss += (loss.item() - running_loss) / (step + 1)
+        bar.set_postfix_str(f'Epoch: {epoch}, Valid_loss: {running_loss}')
+        accelerator.free_memory()
+
+    accelerator.print(f'Valid loss: {running_loss}')
+    if accelerator.is_local_main_process and not IS_LOCAL:
+        wandb.log({f'valid_epoch_loss': running_loss})

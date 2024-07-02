@@ -91,7 +91,7 @@ def get_data(df, drop_rate=0.1):
             data[study_id] = dicom_to_3d_tensors(filepath)
     return data
 
-def get_label(meta, label_name=None):
+def get_label(meta, label_name=None, drop_partial_label=False):
     keys = ['spinal_canal_stenosis_l1_l2',
        'spinal_canal_stenosis_l2_l3', 'spinal_canal_stenosis_l3_l4',
        'spinal_canal_stenosis_l4_l5', 'spinal_canal_stenosis_l5_s1',
@@ -112,14 +112,24 @@ def get_label(meta, label_name=None):
        'right_subarticular_stenosis_l3_l4',
        'right_subarticular_stenosis_l4_l5',
        'right_subarticular_stenosis_l5_s1']
-    label = torch.zeros(25 * 3)
+    label = []
     if label_name == -1:
-        return label
+        return -1
     for i, name in enumerate(keys):
-        if meta[name] == -1: continue
-        if label_name is not None and label_name != name:
+        if meta[name] == -1:
+            if (not drop_partial_label) or label_name in name:
+                label.extend([0] * 3)
             continue
-        label[int(i * 3 + meta[name])] = 1
+        if label_name is not None and not label_name in name:
+            if not drop_partial_label:
+                label.extend([0] * 3)
+            continue
+        tmp = [0] * 3
+        tmp[int(meta[name])] = 1
+        label.extend(tmp)
+    if drop_partial_label and len(label) < 30:
+        label.extend([0] * 15)
+    label = torch.tensor(label, dtype=torch.float32)
     return label
 
 class Normalizer(object):
@@ -162,12 +172,15 @@ class ImagePreprocessor(object):
         self.method = method
         self.normalize = Normalizer(normalize)
         self.augment = ImageAugmentor(augment)
+        self.is_infer = IS_INFER
         if method == 'baseline':
             self.preprocess = self.baseline_preprocess
         elif method == '10slice':
             self.preprocess = self.baseline_v2_preprocess
         elif method == 't004':
             self.preprocess = self.t004_preprocess
+        elif method == 't006':
+            self.preprocess = self.t006_preprocess
         else:
             self.preprocess = self.no_preprocess
     
@@ -214,7 +227,7 @@ class ImagePreprocessor(object):
         return result
     
     def t004_preprocess(self, x, desc, series_id):
-        if IS_INFER:
+        if self.is_infer:
             result_all = []
             for index in range(len(desc)):
                 min_, max_ = x[index].min(), x[index].max()
@@ -250,6 +263,47 @@ class ImagePreprocessor(object):
         label_name = f"{meta['condition'].values[0].replace(' ', '_').lower()}_{meta['level'].values[0].replace('/', '_').lower()}"
         return result, label_name
 
+    def t006_preprocess(self, x, desc, series_id):
+        if self.is_infer:
+            result_all = []
+            label_names = []
+            for index in range(len(desc)):
+                min_, max_ = x[index].min(), x[index].max()
+                for instance_number in range(x[index].shape[0]):
+                    result = torch.zeros(3, 256, 256)
+                    for i in [-1, 0, 1]:
+                        current_index = instance_number + i
+                        if current_index < 0 or current_index >= x[index].shape[0]:
+                            continue
+                        data = x[index][current_index].unsqueeze(0)
+                        data = self.normalize(data, min=min_, max=max_)
+                        data = self.augment(data)
+                        result[i + 1, :, :] = data
+                    result_all.append(result)
+                label_names.append(1) ###
+            result_all = torch.stack(result_all, dim=0)
+            return result_all, -1
+
+        random_index = np.random.randint(len(desc))
+        min_, max_ = x[random_index].min(), x[random_index].max()
+        meta = df_label_co[df_label_co['series_id'] == int(series_id[random_index])]
+        result = torch.zeros(3, 256, 256)
+        if len(meta) == 0: # 2 studies have diagnoses without label coor
+            return result, -1
+        meta = meta.sample(1)
+        original_size = x[random_index].shape
+        pos_x, pos_y = float(meta['y'].iloc[0] / original_size[1] * 256), float(meta['x'].iloc[0] / original_size[2] * 256)# xy is inverted in numpy
+        for i in [-1, 0, 1]:
+            current_index = int(meta['instance_number'].values[0]) + i
+            if current_index < 0 or current_index >= x[random_index].shape[0]:
+                continue
+            data = x[random_index][current_index].unsqueeze(0)
+            data = self.normalize(data, min=min_, max=max_)
+            data = self.augment(data)
+            result[i + 1, :, :] = data
+        label_name = f"{meta['condition'].values[0].replace(' ', '_').lower()}".replace('left_', '').replace('right_', '')
+        return result, label_name, pos_x, pos_y
+
 
 class RSNADataset(Dataset):
     def __init__(self, 
@@ -266,7 +320,11 @@ class RSNADataset(Dataset):
         self.df = df
         self.data = data
         self.preprocess = ImagePreprocessor(method, normalize, augment)
+        self.drop_partial_label = False
         self.is_infer = IS_INFER
+
+        if method == 't006':
+            self.drop_partial_label = True
     
     def __len__(self):
         return len(self.df)
@@ -276,6 +334,8 @@ class RSNADataset(Dataset):
         image, desc, series_id = self.get_data_ram_or_disk(meta)
         if self.method == 't004':
             image, label_name = self.preprocess(image, desc, series_id)
+        elif self.method == 't006':
+            image, label_name, pos_x, pos_y = self.preprocess(image, desc, series_id)
         else:
             image = self.preprocess(image, desc)
         
@@ -284,8 +344,22 @@ class RSNADataset(Dataset):
                 'image': image.unsqueeze(0),
                 'name': meta['study_id']
             }
+        elif self.method == 't006':
+            label = get_label(meta, label_name, self.drop_partial_label)
+            if 'spinal' in label_name:
+                label_name = 'spinal'
+            elif 'neural' in label_name:
+                label_name = 'neural'
+            elif 'subart' in label_name:
+                label_name = 'subart'
+            return {
+                'image': image,
+                'label': label,
+                'pos': torch.tensor([pos_x, pos_y]),
+                'head': label_name
+            }
         else:
-            label = get_label(meta, label_name)
+            label = get_label(meta, label_name, self.drop_partial_label)
             return {
                 'image': image,
                 'label': label,
