@@ -292,7 +292,7 @@ class ImagePreprocessor(object):
         meta = df_label_co[df_label_co['series_id'] == int(series_id[random_index])]
         result = torch.zeros(3, 256, 256)
         if len(meta) == 0: # 2 studies have diagnoses without label coor
-            return result, -1, 0, 0
+            return result, 'spinal_canal_stenosis', 0, 0 # spinal canal steo is a placeholder, could by anything
         meta = meta.sample(1)
         original_size = x[random_index].shape
         pos_x, pos_y = float(meta['y'].iloc[0] / original_size[1] * 256), float(meta['x'].iloc[0] / original_size[2] * 256)# xy is inverted in numpy
