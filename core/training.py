@@ -68,6 +68,8 @@ def valid_one_epoch(model, loader, criterion, optimizer, lr_scheduler, epoch, ac
 
 def train_one_epoch_w_pos(model, loader, criterion, optimizer, lr_scheduler, epoch, accelerator):
     running_loss = 0.0
+    running_bce_loss = 0.0
+    running_l2_loss = 0.0
     model.train()
     bar = tqdm(enumerate(loader), total=len(loader), disable=not accelerator.is_local_main_process)
 
@@ -79,8 +81,10 @@ def train_one_epoch_w_pos(model, loader, criterion, optimizer, lr_scheduler, epo
         pos = batch['pos']
         optimizer.zero_grad()
         pred_labels = model(image, head)
-        loss = criterion(pred_labels, [label, pos])
+        loss, bce_loss, l2_loss = criterion(pred_labels, [label, pos])
         running_loss += (loss.item() - running_loss) / (step + 1)
+        running_bce_loss += (bce_loss.item() - running_bce_loss) / (step + 1)
+        running_l2_loss += (l2_loss.item() - running_l2_loss) / (step + 1)
         accelerator.backward(loss)
         optimizer.step()
         lr_scheduler.step()
@@ -92,9 +96,13 @@ def train_one_epoch_w_pos(model, loader, criterion, optimizer, lr_scheduler, epo
 
     if accelerator.is_local_main_process and not IS_LOCAL:
         wandb.log({f'train_epoch_loss': running_loss})
+        wandb.log({f'train_epoch_bce_loss': running_bce_loss})
+        wandb.log({f'train_epoch_l2_loss': running_l2_loss})
 
 def valid_one_epoch_w_pos(model, loader, criterion, optimizer, lr_scheduler, epoch, accelerator):
     running_loss = 0.0
+    running_bce_loss = 0.0
+    running_l2_loss = 0.0
     global global_step
     model.eval()
     bar = tqdm(enumerate(loader), total=len(loader), disable=not accelerator.is_local_main_process)
@@ -109,11 +117,15 @@ def valid_one_epoch_w_pos(model, loader, criterion, optimizer, lr_scheduler, epo
         pos = batch['pos']
         with torch.no_grad():
             pred_label = model(image, head)
-        loss = criterion(pred_label, [label, pos])
+        loss, bce_loss, l2_loss = criterion(pred_label, [label, pos])
         running_loss += (loss.item() - running_loss) / (step + 1)
+        running_bce_loss += (bce_loss.item() - running_bce_loss) / (step + 1)
+        running_l2_loss += (l2_loss.item() - running_l2_loss) / (step + 1)
         bar.set_postfix_str(f'Epoch: {epoch}, Valid_loss: {running_loss}')
         accelerator.free_memory()
 
     accelerator.print(f'Valid loss: {running_loss}')
     if accelerator.is_local_main_process and not IS_LOCAL:
         wandb.log({f'valid_epoch_loss': running_loss})
+        wandb.log({f'valid_epoch_bce_loss': running_bce_loss})
+        wandb.log({f'valid_epoch_l2_loss': running_l2_loss})

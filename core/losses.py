@@ -14,5 +14,5 @@ class TwoWayLoss(nn.Module):
         target1, target2 = targets
         bce_loss = self.bce_loss(pred1, target1)
         l2_loss = self.l2_loss(pred2, target2)
-        total_loss = bce_loss + l2_loss
-        return total_loss
+        total_loss = bce_loss * self.w1 + l2_loss * self.w2
+        return total_loss, bce_loss, l2_loss
