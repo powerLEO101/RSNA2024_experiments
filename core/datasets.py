@@ -283,9 +283,11 @@ class ImagePreprocessor(object):
                         data = self.augment(data)
                         result[i + 1, :, :] = data
                     result_all.append(result)
-                label_names.append(1) ###
+                    label_names.append({'Sagittal T2/STIR': 'spinal',
+                                        'Sagittal T1': 'neural',
+                                        'Axial T2': 'subart'}.get(desc[index]))
             result_all = torch.stack(result_all, dim=0)
-            return result_all, -1
+            return result_all, label_names, 0, 0
 
         random_index = np.random.randint(len(desc))
         min_, max_ = x[random_index].min(), x[random_index].max()
@@ -314,7 +316,8 @@ class RSNADataset(Dataset):
                  data,
                  method='baseline', 
                  normalize='scale', 
-                 augment='baseline'):
+                 augment='baseline',
+                 exact_pos=True):
         super().__init__()
         self.method = method
         self.normalize = normalize
@@ -325,6 +328,7 @@ class RSNADataset(Dataset):
         self.preprocess = ImagePreprocessor(method, normalize, augment)
         self.drop_partial_label = False
         self.is_infer = IS_INFER
+        self.exact_pos = exact_pos
 
         if method == 't006':
             self.drop_partial_label = True
@@ -355,12 +359,20 @@ class RSNADataset(Dataset):
                 label_name = 'neural'
             elif 'subart' in label_name:
                 label_name = 'subart'
-            return {
-                'image': image,
-                'label': label,
-                'pos': torch.tensor([pos_x, pos_y], dtype=torch.float32),
-                'head': label_name
-            }
+            if self.exact_pos:
+                return {
+                    'image': image,
+                    'label': label,
+                    'pos': torch.tensor([pos_x, pos_y], dtype=torch.float32),
+                    'head': label_name
+                }
+            else:
+                return {
+                    'image': image,
+                    'label': label,
+                    'pos': torch.tensor([pos_x // 32, pos_y // 32], dtype=torch.float32),
+                    'head': label_name
+                }
         else:
             label = get_label(meta, label_name, self.drop_partial_label)
             return {

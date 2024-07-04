@@ -1,6 +1,6 @@
 jobs = [
-    'python3 tries/t007_from006_weighted_two_way_loss.py',
-    'python3 tries/t008_from007_15_epochs.py'
+    'python3 tries/t009_from008_equal_w.py',
+    'python3 tries/t010_from008_rough_pos.py'
     ]
 
 import os
