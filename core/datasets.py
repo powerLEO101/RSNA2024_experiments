@@ -149,7 +149,10 @@ def get_verdict(meta, meta_file, weights=[1, 2, 4]):
     weights = {idx: x for idx, x in enumerate(weights)}
     study_id = meta['study_id']
     label_name = f"{meta['condition'].replace(' ', '_')}_{meta['level'].replace('/','_')}".lower()
-    verdict = weights[meta_file[label_name]]
+    try:
+        verdict = weights[meta_file[label_name]]
+    except KeyError:
+        verdict = 0
     return verdict
 
 class RSNADataset(Dataset):
