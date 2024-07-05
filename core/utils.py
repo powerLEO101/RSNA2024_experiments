@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import torch
 
 def display_images(images, title, max_images_per_row=4):
     # Calculate the number of rows needed
@@ -26,3 +27,7 @@ def display_images(images, title, max_images_per_row=4):
     fig.suptitle(title, fontsize=16)
 
     plt.tight_layout()
+
+def scale_normalize(x: torch.Tensor, min, max):
+    x = (x - min) / (max - min)
+    return x

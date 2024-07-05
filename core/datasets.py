@@ -12,12 +12,13 @@ from torch.utils.data import Dataset
 from torchvision.transforms import v2
 from sklearn.model_selection import KFold
 from .project_paths import base_path
-from .utils import display_images
+from .utils import display_images, scale_normalize
 
 IS_INFER = False
 df_meta_f = pd.read_csv(f'{base_path}/train_series_descriptions.csv')
 df_meta_f_ = pd.read_csv(f'{base_path}/test_series_descriptions.csv')
 df_label_co = pd.read_csv(f'{base_path}/train_label_coordinates.csv')
+df_label_co['instance_number'] = df_label_co['instance_number'].apply(lambda x: x - 1) ### DEBUG!!!
 # df_label_co['new_id'] = [f'{x}_{y}' for x, y in zip(df_label_co['study_id'], df_label_co['series_id'])]
 # df_label_co = df_label_co.set_index('series_id')
 kfold_random_seed = 23
@@ -31,7 +32,7 @@ def find_description(study_id, series_id):
                     (df_meta_f['series_id'] == int(series_id))]['series_description'].iloc[0]
 
 def get_df():
-    df = pd.read_csv(f'{base_path}/train.csv')
+    df = pd.read_csv(f'{base_path}/train_clean.csv')
     df = df.fillna(-1)
     df = df.replace({'Normal/Mild': 0, 'Moderate': 1, 'Severe': 2})
     df['filepath'] = df['study_id'].map(lambda x: f'{base_path}/train_images/{x}')
@@ -91,7 +92,7 @@ def get_data(df, drop_rate=0.1):
             data[study_id] = dicom_to_3d_tensors(filepath)
     return data
 
-def get_label(meta, label_name=None, drop_partial_label=False):
+def get_label(meta, label_name: str=None, drop_partial_label=False):
     keys = ['spinal_canal_stenosis_l1_l2',
        'spinal_canal_stenosis_l2_l3', 'spinal_canal_stenosis_l3_l4',
        'spinal_canal_stenosis_l4_l5', 'spinal_canal_stenosis_l5_s1',
@@ -113,11 +114,6 @@ def get_label(meta, label_name=None, drop_partial_label=False):
        'right_subarticular_stenosis_l4_l5',
        'right_subarticular_stenosis_l5_s1']
     label = []
-    if label_name == -1:
-        if drop_partial_label:
-            return torch.zeros(30)
-        else:
-            return torch.zeros(75)
     for i, name in enumerate(keys):
         if meta[name] == -1:
             if (not drop_partial_label) or label_name in name:
@@ -135,250 +131,104 @@ def get_label(meta, label_name=None, drop_partial_label=False):
     label = torch.tensor(label, dtype=torch.float32)
     return label
 
-class Normalizer(object):
-    def __init__(self, n_type):
-        self.n_type = n_type
-        if n_type == 'scale':
-            self.n_fun = self.scale_normalize
-        else:
-            self.n_fun = self.no_normalize
-    
-    def __call__(self, x, **kargs):
-        return self.n_fun(x, **kargs)
-    
-    def scale_normalize(self, x, min, max):
-        x = (x - min) / (max - min)
-        return x
-    
-    def no_normalize(self, x):
-        return x
-
-
-class ImageAugmentor(object):
-    def __init__(self, method):
-        self.method = method
-        if method == 'baseline':
-            self.augment = v2.Compose([
-                v2.Resize([256, 256], interpolation=cv2.INTER_CUBIC)
-            ])
-        else:
-            self.augment = v2.Compose([v2.Identity()])
-    
-    def __call__(self, x):
-        return self.augment(x)
-
-class ImagePreprocessor(object):
-    def __init__(self, 
-                 method='baseline',
-                 normalize='scale',
-                 augment='baseline'):
-        self.method = method
-        self.normalize = Normalizer(normalize)
-        self.augment = ImageAugmentor(augment)
-        self.is_infer = IS_INFER
-        if method == 'baseline':
-            self.preprocess = self.baseline_preprocess
-        elif method == '10slice':
-            self.preprocess = self.baseline_v2_preprocess
-        elif method == 't004':
-            self.preprocess = self.t004_preprocess
-        elif method == 't006':
-            self.preprocess = self.t006_preprocess
-        else:
-            self.preprocess = self.no_preprocess
-    
-    def __call__(self, *args):
-        return self.preprocess(*args)
-    
-    def no_preprocess(self, x, desc):
-        return x
-    
-    def baseline_preprocess(self, x, desc):
-        result = torch.zeros(6, 256, 256)
-        if 'Sagittal T1' in desc:
-            data = x[desc.index('Sagittal T1')]
-            min, max = data.min(), data.max()
-            data_ = data[int(len(data) / 2) - 1 : int(len(data) / 2) + 2]
-            data_ = self.normalize(data_, min=min, max=max)
-            data_ = self.augment(data_)
-            result[:3, :, :] = data_
-        if 'Sagittal T2/STIR' in desc:
-            data = x[desc.index('Sagittal T2/STIR')]
-            min, max = data.min(), data.max()
-            data_ = data[int(len(data) / 2) - 1 : int(len(data) / 2) + 2]
-            data_ = self.normalize(data_, min=min, max=max)
-            data_ = self.augment(data_)
-            result[3:6, :, :] = data_
-        return result
-    
-    def baseline_v2_preprocess(self, x, desc):
-        result = torch.zeros(20, 256, 256)
-        if 'Sagittal T1' in desc:
-            data = x[desc.index('Sagittal T1')]
-            min_, max_ = data.min(), data.max()
-            data_ = data[max(int(len(data) / 2) - 5, 0) : int(len(data) / 2) + 5]
-            data_ = self.normalize(data_, min=min_, max=max_)
-            data_ = self.augment(data_)
-            result[0:data_.shape[0], :, :] = data_
-        if 'Sagittal T2/STIR' in desc:
-            data = x[desc.index('Sagittal T2/STIR')]
-            min_, max_ = data.min(), data.max()
-            data_ = data[max(int(len(data) / 2) - 5, 0) : int(len(data) / 2) + 5]
-            data_ = self.normalize(data_, min=min_, max=max_)
-            data_ = self.augment(data_)
-            result[10:10 + data_.shape[0], :, :] = data_
-        return result
-    
-    def t004_preprocess(self, x, desc, series_id):
-        if self.is_infer:
-            result_all = []
-            for index in range(len(desc)):
-                min_, max_ = x[index].min(), x[index].max()
-                for instance_number in range(x[index].shape[0]):
-                    result = torch.zeros(3, 256, 256)
-                    for i in [-1, 0, 1]:
-                        current_index = instance_number + i
-                        if current_index < 0 or current_index >= x[index].shape[0]:
-                            continue
-                        data = x[index][current_index].unsqueeze(0)
-                        data = self.normalize(data, min=min_, max=max_)
-                        data = self.augment(data)
-                        result[i + 1, :, :] = data
-                    result_all.append(result)
-            result_all = torch.stack(result_all, dim=0)
-            return result_all, -1
-
-        random_index = np.random.randint(len(desc))
-        min_, max_ = x[random_index].min(), x[random_index].max()
-        meta = df_label_co[df_label_co['series_id'] == int(series_id[random_index])]
-        result = torch.zeros(3, 256, 256)
-        if len(meta) == 0: # 2 studies have diagnoses without label coor
-            return result, -1
-        meta = meta.sample(1)
-        for i in [-1, 0, 1]:
-            current_index = int(meta['instance_number'].values[0]) + i
-            if current_index < 0 or current_index >= x[random_index].shape[0]:
-                continue
-            data = x[random_index][current_index].unsqueeze(0)
-            data = self.normalize(data, min=min_, max=max_)
-            data = self.augment(data)
-            result[i + 1, :, :] = data
-        label_name = f"{meta['condition'].values[0].replace(' ', '_').lower()}_{meta['level'].values[0].replace('/', '_').lower()}"
-        return result, label_name
-
-    def t006_preprocess(self, x, desc, series_id):
-        if self.is_infer:
-            result_all = []
-            label_names = []
-            for index in range(len(desc)):
-                min_, max_ = x[index].min(), x[index].max()
-                for instance_number in range(x[index].shape[0]):
-                    result = torch.zeros(3, 256, 256)
-                    for i in [-1, 0, 1]:
-                        current_index = instance_number + i
-                        if current_index < 0 or current_index >= x[index].shape[0]:
-                            continue
-                        data = x[index][current_index].unsqueeze(0)
-                        data = self.normalize(data, min=min_, max=max_)
-                        data = self.augment(data)
-                        result[i + 1, :, :] = data
-                    result_all.append(result)
-                    label_names.append({'Sagittal T2/STIR': 'spinal',
-                                        'Sagittal T1': 'neural',
-                                        'Axial T2': 'subart'}.get(desc[index]))
-            result_all = torch.stack(result_all, dim=0)
-            return result_all, label_names, 0, 0
-
-        random_index = np.random.randint(len(desc))
-        min_, max_ = x[random_index].min(), x[random_index].max()
-        meta = df_label_co[df_label_co['series_id'] == int(series_id[random_index])]
-        result = torch.zeros(3, 256, 256)
-        if len(meta) == 0: # 2 studies have diagnoses without label coor
-            return result, 'spinal_canal_stenosis', 0., 0. # spinal canal steo is a placeholder, could by anything
-        meta = meta.sample(1)
-        original_size = x[random_index].shape
-        pos_x, pos_y = float(meta['y'].iloc[0] / original_size[1] * 256), float(meta['x'].iloc[0] / original_size[2] * 256)# xy is inverted in numpy
-        for i in [-1, 0, 1]:
-            current_index = int(meta['instance_number'].values[0]) + i
-            if current_index < 0 or current_index >= x[random_index].shape[0]:
-                continue
-            data = x[random_index][current_index].unsqueeze(0)
-            data = self.normalize(data, min=min_, max=max_)
-            data = self.augment(data)
-            result[i + 1, :, :] = data
-        label_name = f"{meta['condition'].values[0].replace(' ', '_').lower()}".replace('left_', '').replace('right_', '')
-        return result, label_name, pos_x, pos_y
-
+def generate_weights(meta, desc, weights=[1, 2, 4]):
+    weights = {idx: x for idx, x in enumerate(weights)}
+    result = []
+    for one_desc in desc:
+        one_desc = {'Sagittal T2/STIR': 'spinal',
+                    'Sagittal T1': 'neural',
+                    'Axial T2': 'subart'}.get(one_desc)
+        verdict = meta[meta.keys().str.contains(one_desc)].max()
+        verdict = weights[verdict]
+        result.append(verdict)
+    result = np.array(result)
+    result = result / result.sum()
+    return result
+        
+def get_verdict(meta, meta_file, weights=[1, 2, 4]):
+    weights = {idx: x for idx, x in enumerate(weights)}
+    study_id = meta['study_id']
+    label_name = f"{meta['condition'].replace(' ', '_')}_{meta['level'].replace('/','_')}".lower()
+    verdict = weights[meta_file[label_name]]
+    return verdict
 
 class RSNADataset(Dataset):
     def __init__(self, 
                  df,
                  data,
-                 method='baseline', 
-                 normalize='scale', 
-                 augment='baseline',
-                 exact_pos=True):
-        super().__init__()
-        self.method = method
-        self.normalize = normalize
-        self.augment = augment
+                 augment_level=0,
+                 rough_pos_factor=0,
+                 drop_partial_label=True,
+                 image_size=[256, 256],
+                 severity_weights=[1, 2, 4]):
 
+        super().__init__()
+        self.augment_level = augment_level
+        self.drop_partial_label = drop_partial_label
+        self.rough_pos_factor = rough_pos_factor
         self.df = df
         self.data = data
-        self.preprocess = ImagePreprocessor(method, normalize, augment)
-        self.drop_partial_label = False
-        self.is_infer = IS_INFER
-        self.exact_pos = exact_pos
+        self.image_size = image_size
+        self.severity_weights = severity_weights
 
-        if method == 't006':
-            self.drop_partial_label = True
-    
+        if augment_level == 0:
+            self.augment = v2.Compose([
+                v2.Resize(image_size, interpolation=cv2.INTER_CUBIC)
+            ])
+
     def __len__(self):
         return len(self.df)
 
-    def __getitem__(self, idx): # every subject has at least one saggital view
-        meta = dict(self.df.iloc[idx])
-        image, desc, series_id = self.get_data_ram_or_disk(meta)
-        if self.method == 't004':
-            image, label_name = self.preprocess(image, desc, series_id)
-        elif self.method == 't006':
-            image, label_name, pos_x, pos_y = self.preprocess(image, desc, series_id)
+    def __getitem__(self, idx):
+
+        meta_file = self.df.iloc[idx]
+        image, desc, series_id = self.get_data_ram_or_disk(meta_file)
+
+        #p = generate_weights(meta_file, desc)
+        random_index = np.random.choice(len(desc))
+
+        image, desc = image[random_index], desc[random_index]
+        min_, max_ = image.min(), image.max()
+        meta = df_label_co[df_label_co['series_id'] == int(series_id[random_index])] # require clean data/ all series must have coordinates
+        p = np.array([get_verdict(meta.iloc[i], meta_file, weights=self.severity_weights) for i in range(len(meta))])
+        p = p / p.sum()
+        meta = meta.iloc[np.random.choice(len(p), p=p)]
+
+        result = torch.zeros(3, *self.image_size)
+        pos = [float(meta['x'] / image.shape[1] * self.image_size[0]), 
+               float(meta['y'] / image.shape[2] * self.image_size[1])]
+
+        for i in [-1, 0, 1]:
+            current_index = int(meta['instance_number']) + i
+            if current_index < 0 or current_index >= image.shape[0]:
+                continue
+
+            data = image[current_index].unsqueeze(0)
+            data = scale_normalize(data, min=min_, max=max_)
+            data = self.augment(data)
+
+            result[i + 1, :, :] = data
+
+        # some post-processing for input data
+        label_name = f"{meta['condition'].replace(' ', '_').lower()}".replace('left_', '').replace('right_', '')
+        if 'spinal' in label_name:
+            label_name = 'spinal'
+        elif 'neural' in label_name:
+            label_name = 'neural'
+        elif 'subart' in label_name:
+            label_name = 'subart'
         else:
-            image = self.preprocess(image, desc)
-        
-        if self.is_infer:
-            return {
-                'image': image.unsqueeze(0),
-                'name': meta['study_id']
-            }
-        elif self.method == 't006':
-            label = get_label(meta, label_name, self.drop_partial_label)
-            if 'spinal' in label_name:
-                label_name = 'spinal'
-            elif 'neural' in label_name:
-                label_name = 'neural'
-            elif 'subart' in label_name:
-                label_name = 'subart'
-            if self.exact_pos:
-                return {
-                    'image': image,
-                    'label': label,
-                    'pos': torch.tensor([pos_x, pos_y], dtype=torch.float32),
-                    'head': label_name
-                }
-            else:
-                return {
-                    'image': image,
-                    'label': label,
-                    'pos': torch.tensor([pos_x // 32, pos_y // 32], dtype=torch.float32),
-                    'head': label_name
-                }
-        else:
-            label = get_label(meta, label_name, self.drop_partial_label)
-            return {
-                'image': image,
-                'label': label,
-            }
+            print('Error in converting label name. Check whether data is clean?')
+        if self.rough_pos_factor != 0:
+            pos = [x // self.rough_pos_factor for x in pos]
+        label = get_label(meta_file, label_name, self.drop_partial_label)
+
+        return {
+            'image': result,
+            'label': label,
+            'pos': torch.tensor(pos, dtype=torch.float32),
+            'head': label_name
+        }
     
     def get_data_ram_or_disk(self, meta):
         if isinstance(self.data[meta['study_id']], str):
@@ -386,3 +236,33 @@ class RSNADataset(Dataset):
         else:
             return self.data[meta['study_id']]
             
+class RSNADatasetInfer(RSNADataset):
+    def __getitem__(self, idx):
+
+        meta = dict(self.df.iloc[idx])
+        image, desc, series_id = self.get_data_ram_or_disk(meta)
+
+        result_all = []
+        label_names = []
+        for index in range(len(desc)):
+            min_, max_ = image[index].min(), image[index].max()
+            for instance_number in range(image[index].shape[0]):
+                result = torch.zeros(3, 256, 256)
+                for i in [-1, 0, 1]:
+                    current_index = instance_number + i
+                    if current_index < 0 or current_index >= image[index].shape[0]:
+                        continue
+                    data = image[index][current_index].unsqueeze(0)
+                    data = scale_normalize(data, min=min_, max=max_)
+                    data = self.augment(data)
+                    result[i + 1, :, :] = data
+                result_all.append(result)
+                label_names.append({'Sagittal T2/STIR': 'spinal',
+                                    'Sagittal T1': 'neural',
+                                    'Axial T2': 'subart'}.get(desc[index]))
+        result_all = torch.stack(result_all, dim=0)
+
+        return {
+            'image': result_all,
+            'head': label_names
+        }

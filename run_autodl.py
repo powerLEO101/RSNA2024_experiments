@@ -1,6 +1,5 @@
 jobs = [
-    'python3 tries/t009_from008_equal_w.py',
-    'python3 tries/t010_from008_rough_pos.py'
+    'python3 tries/t011_from010_new_dataset.py',
     ]
 
 import os

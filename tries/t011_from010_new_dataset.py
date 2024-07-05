@@ -88,8 +88,8 @@ def get_loaders(df, data, fold_n):
 
     print(f'Data is split into train: {len(train_df)}, and valid: {len(valid_df)}')
     
-    train_set = datasets.RSNADataset(train_df, data, method=config['method'], exact_pos=False)
-    valid_set = datasets.RSNADataset(valid_df, data, method=config['method'], exact_pos=False)
+    train_set = datasets.RSNADataset(train_df, data, rough_pos_factor=32)
+    valid_set = datasets.RSNADataset(valid_df, data, rough_pos_factor=32)
     train_loader =  DataLoader(train_set, 
                                 batch_size=config['batch_size'], 
                                 shuffle=True, 

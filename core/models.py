@@ -25,19 +25,24 @@ class ThreeViewModel(nn.Module):
         except:
             in_features = base_model.classifier.in_features
         
-        layers = list(base_model.children())[:-1]
+        layers = list(base_model.children())[:-2]
         self.encoder = nn.Sequential(*layers)
+        self.global_pool = nn.AdaptiveAvgPool2d(1)
         self.spinal_head = nn.Linear(in_features, 30)
         self.neural_head = nn.Linear(in_features, 30)
         self.subart_head = nn.Linear(in_features, 30)
-        self.bb_head = nn.Linear(in_features, 2)
+        bb_head_in_features = in_features * (self.encoder(torch.rand(1, 3, 256, 256)).shape[-1] ** 2)
+        self.bb_head = nn.Linear(bb_head_in_features, 2) # TODO bb head could be improved for each diagnoses
 
     def forward(self, x, heads):
         # X: [B, C, X, Y]
         assert len(x.shape) == 4
         features = self.encoder(x)
+        features_pooled = self.global_pool(features)
+        features_pooled = features_pooled.flatten(start_dim=1)
+        features = features.flatten(start_dim=1)
         result = []
-        for head, feature in zip(heads, features):
+        for head, feature in zip(heads, features_pooled):
             if head == 'spinal':
                 result.append(self.spinal_head(feature.unsqueeze(0)))
             elif head == 'neural':
