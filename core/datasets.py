@@ -194,7 +194,10 @@ class RSNADataset(Dataset):
         min_, max_ = image.min(), image.max()
         meta = df_label_co[df_label_co['series_id'] == int(series_id[random_index])] # require clean data/ all series must have coordinates
         p = np.array([get_verdict(meta.iloc[i], meta_file, weights=self.severity_weights) for i in range(len(meta))])
-        p = p / p.sum()
+        if p.sum() == 0:
+            p = [1]
+        else:
+            p = p / p.sum()
         meta = meta.iloc[np.random.choice(len(p), p=p)]
 
         result = torch.zeros(3, *self.image_size)
