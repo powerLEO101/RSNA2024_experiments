@@ -29,6 +29,7 @@ config = {
     'folds': 5,
     'batch_size': 64 if not 'LOCAL_TEST' in environ else 8,
     'model_name': 'timm/efficientnet_b0.ra_in1k',
+    'checkpoint_freq': 5
 }
 file_name = os.path.basename(__file__)[:-3]
 accelerator = Accelerator()
@@ -70,6 +71,9 @@ def train_one_fold(train_loader, valid_loader, fold_n):
                                  accelerator=accelerator)
         if accelerator.is_local_main_process and not IS_LOCAL:
             wandb.log({f'epoch': epoch})
+        if accelerator.is_local_main_process and (epoch + 1) % config['checkpoint_freq'] == 0:
+            torch.save((model.cpu().state_dict()), f'./{file_name}_{fold_n}_{epoch}.pt')
+
     if accelerator.is_local_main_process and not IS_LOCAL:
         wandb.finish()
 
