@@ -1,5 +1,5 @@
 jobs = [
-    'python3 tries/t011_from010_new_dataset.py',
+    'python3 tries/t012_from011_no_bb_head.py',
     ]
 
 import os

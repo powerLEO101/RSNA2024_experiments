@@ -14,7 +14,7 @@ class BaselineModel(nn.Module):
         return x
 
 class ThreeViewModel(nn.Module):
-    def __init__(self, model_name, in_chans=3, global_pool='avg'):
+    def __init__(self, model_name, in_chans=3, global_pool='avg', predict_bb=True):
         super().__init__()
         base_model = timm.create_model(model_name=model_name,
                                        pretrained=True,
@@ -33,6 +33,7 @@ class ThreeViewModel(nn.Module):
         self.subart_head = nn.Linear(in_features, 30)
         bb_head_in_features = in_features * (self.encoder(torch.rand(1, 3, 256, 256)).shape[-1] ** 2)
         self.bb_head = nn.Linear(bb_head_in_features, 2) # TODO bb head could be improved for each diagnoses
+        self.predict_bb = predict_bb
 
     def forward(self, x, heads):
         # X: [B, C, X, Y]
@@ -52,5 +53,8 @@ class ThreeViewModel(nn.Module):
             else:
                 print('Error in model, cannot find head')
         result = torch.cat(result, dim=0)
-        result_co = self.bb_head(features)
-        return result, result_co
+        if self.predict_bb:
+            result_co = self.bb_head(features)
+            return result, result_co
+        else:
+            return result
