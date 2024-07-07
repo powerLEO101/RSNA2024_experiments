@@ -20,6 +20,7 @@ from torch.utils.data import DataLoader
 from transformers import get_cosine_schedule_with_warmup
 
 IS_LOCAL = bool('LOCAL_TEST' in environ)
+wandb.require('core')
 
 config = {
     'lr': 1e-3,
@@ -33,6 +34,7 @@ config = {
 }
 file_name = os.path.basename(__file__)[:-3]
 accelerator = Accelerator()
+device = accelerator.device
 
 def train_one_fold(train_loader, valid_loader, fold_n):
     model = models.ThreeViewModel(model_name=config['model_name'])
@@ -41,6 +43,7 @@ def train_one_fold(train_loader, valid_loader, fold_n):
     optimizer = optim.AdamW(model.parameters(), lr=config['lr'], weight_decay=config['wd'])
     lr_scheduler = get_cosine_schedule_with_warmup(optimizer, len(train_loader), len(train_loader) * config['epoch'])
     model, optimizer, train_loader, valid_loader, lr_scheduler = accelerator.prepare(model, optimizer, train_loader, valid_loader, lr_scheduler)
+    model._to_device(device)
 
     if accelerator.is_local_main_process and not IS_LOCAL:
         wandb.init(

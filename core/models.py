@@ -61,6 +61,11 @@ class ThreeViewModel(nn.Module):
             current_slice += self.view_slice_count[i]
         result, _ = pack(result, 'b *')
         return result
+    
+    def _to_device(self, device):
+        for i in range(3):
+            self.lstm[i].to(device)
+            self.heads[i].to(device)
 
 
 class ThreeViewModel_old(nn.Module):
