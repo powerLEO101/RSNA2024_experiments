@@ -5,6 +5,7 @@ import torch
 import pydicom
 import numpy as np
 import pandas as pd
+import albumentations as A
 
 from tqdm import tqdm
 from os import environ
@@ -12,6 +13,7 @@ from torch.utils.data import Dataset
 from torchvision.transforms import v2
 from sklearn.model_selection import KFold
 from .project_paths import base_path
+from albumentations.pytorch import ToTensorV2
 from .utils import display_images, scale_normalize
 
 IS_INFER = False
@@ -173,6 +175,7 @@ class RSNADataset(Dataset):
         self.data = data
         self.image_size = image_size
         self.severity_weights = severity_weights
+        self.augment_level = augment_level
 
         if augment_level == 0:
             self.augment = v2.Compose([
@@ -272,3 +275,75 @@ class RSNADatasetInfer(RSNADataset):
             'image': result_all,
             'head': label_names
         }
+
+VIEWS = ['Sagittal T2/STIR', 'Sagittal T1', 'Axial T2']
+class ThreeViewDataset(RSNADataset):
+    def __init__(self, 
+                 df, 
+                 data,
+                 view_slice_count=[10, 10, 20],
+                 **kargs):
+        super().__init__(df, data, **kargs)
+        self.view_slice_count = view_slice_count
+        self.total_slice = sum(view_slice_count)
+        
+        if self.augment_level == 0:
+            self.augment = A.ReplayCompose([
+                A.Resize(*self.image_size),
+                ToTensorV2(),
+            ])
+        elif self.augment_level == 1:
+            self.augment = A.ReplayCompose([
+                A.Resize(*self.image_size),
+                A.Perspective(p=0.5),
+                A.HorizontalFlip(p=0.5),
+                A.VerticalFlip(p=0.5),
+                A.Rotate(p=0.5, limit=(-25, 25)),
+                ToTensorV2(),
+            ])
+
+    def __getitem__(self, idx):
+        meta = dict(self.df.iloc[idx])
+        image, desc, series_id = self.get_data_ram_or_disk(meta)
+
+        result = torch.zeros(self.total_slice, 3, *self.image_size)
+        current_index = 0
+        for slice_count, one_view in zip(self.view_slice_count, VIEWS):
+            if one_view in desc:
+                volume = self._get_n_slice(slice_count, image[desc.index(one_view)])
+                volume = self._apply_augment_on_volume(volume)
+                result_view = torch.zeros(len(volume), 3, *self.image_size)
+                for i in range(len(volume)):
+                    for offset in [-1, 0, 1]:
+                        if i + offset < 0 or i + offset >= len(volume):
+                            continue
+                        result_view[i, offset + 1] = volume[i + offset]
+                result[current_index : current_index + slice_count] = result_view
+            current_index += slice_count
+        
+        label = get_label(meta)
+
+        return {
+            'image': result,
+            'label': label
+        }
+
+    def _get_n_slice(self, n, x):
+        step = len(x) / n
+        result = torch.zeros(n, *x.shape[1:])
+        norm_param = [x.min(), x.max()]
+        for i in range(n):
+            one_slice = x[int(i * step)]
+            one_slice = scale_normalize(one_slice, *norm_param)
+            result[i] = one_slice
+        return result
+    
+    def _apply_augment_on_volume(self, x):
+        result = torch.zeros(len(x), *self.image_size)
+        transformed = self.augment(image=x[0].numpy())
+        replay = transformed['replay']
+        result[0] = transformed['image']
+        for i in range(1, len(x)):
+            transformed = A.ReplayCompose.replay(replay, image=x[i].numpy())
+            result[i] = transformed['image']
+        return result

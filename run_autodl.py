@@ -1,5 +1,5 @@
 jobs = [
-    'python3 tries/t012_from011_no_bb_head.py',
+    'python3 tries/t013_from012_threeviewmodel_rnn.py',
     ]
 
 import os

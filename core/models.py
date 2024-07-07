@@ -2,6 +2,8 @@ import timm
 import torch
 import torch.nn as nn
 
+from einops import rearrange, pack, unpack
+
 class BaselineModel(nn.Module):
     def __init__(self, model_name, in_chans=6):
         super().__init__()
@@ -13,7 +15,55 @@ class BaselineModel(nn.Module):
         x = self.model(x)
         return x
 
+
 class ThreeViewModel(nn.Module):
+    def __init__(self, 
+                 model_name, 
+                 in_chans=3, 
+                 global_pool='avg',
+                 view_slice_count=[10, 10, 20],
+                 head_dropout_rate=0.1):
+        super().__init__()
+        base_model = timm.create_model(model_name=model_name,
+                                       pretrained=True,
+                                       in_chans=in_chans,
+                                       global_pool=global_pool)
+        try:
+            in_features = base_model.fc.in_features
+        except:
+            in_features = base_model.classifier.in_features
+        
+        layers = list(base_model.children())[:-1]
+        self.encoder = nn.Sequential(*layers)
+        self.lstm = []
+        self.heads = []
+        for i in range(3):
+            self.lstm.append(nn.LSTM(in_features, in_features // 2, bidirectional=True, batch_first=True))
+            self.heads.append(nn.Sequential(
+                nn.Dropout(head_dropout_rate),
+                nn.Linear(in_features * view_slice_count[i], 30 if i != 0 else 15)
+            ))
+        
+        self.view_slice_count = view_slice_count
+
+    def forward(self, x):
+        B, S, C, X, Y = x.shape
+        x = rearrange(x, 'b s c x y -> (b s) c x y')
+        features = self.encoder(x)
+        features = rearrange(features, '(b s) f -> b s f', b=B, s=S)
+        current_slice = 0
+        result = []
+        for i in range(3):
+            view_features = features[:, current_slice : current_slice + self.view_slice_count[i], :]
+            view_features, _ = self.lstm[i](view_features)
+            view_features = rearrange(view_features, 'b s f -> b (s f)')
+            result.append(self.heads[i](view_features))
+            current_slice += self.view_slice_count[i]
+        result, _ = pack(result, 'b *')
+        return result
+
+
+class ThreeViewModel_old(nn.Module):
     def __init__(self, model_name, in_chans=3, global_pool='avg', predict_bb=True):
         super().__init__()
         base_model = timm.create_model(model_name=model_name,
