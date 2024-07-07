@@ -27,7 +27,7 @@ config = {
     'epoch': 15,
     'seed': 22,
     'folds': 2,
-    'batch_size': 8 if not 'LOCAL_TEST' in environ else 1,
+    'batch_size': 4 if not 'LOCAL_TEST' in environ else 1,
     'model_name': 'timm/efficientnet_b0.ra_in1k',
     'checkpoint_freq': 100 # no checkpoint in the middle
 }
