@@ -41,7 +41,7 @@ class ThreeViewModel(nn.Module):
         for i in range(3):
             self.lstm.append(nn.LSTM(in_features, in_features // out_feature_divide, bidirectional=True, batch_first=True))
             self.heads.append(nn.Sequential(
-                nn.Dropout(head_dropout_rate),
+                #nn.Dropout(head_dropout_rate),
                 nn.Linear(in_features // out_feature_divide * 2 * view_slice_count[i], 30 if i != 0 else 15)
             ))
         self.lstm = nn.ModuleList(self.lstm)
@@ -67,9 +67,10 @@ class ThreeViewModel(nn.Module):
         return result
     
     def _to_device(self, device):
-        for i in range(3):
-            self.lstm[i].to(device)
-            self.heads[i].to(device)
+        pass
+        # for i in range(3):
+        #     self.lstm[i].to(device)
+        #     self.heads[i].to(device)
 
 
 class ThreeViewModel_old(nn.Module):
