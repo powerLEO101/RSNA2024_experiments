@@ -44,6 +44,8 @@ class ThreeViewModel(nn.Module):
                 nn.Dropout(head_dropout_rate),
                 nn.Linear(in_features // out_feature_divide * 2 * view_slice_count[i], 30 if i != 0 else 15)
             ))
+        self.lstm = nn.ModuleList(self.lstm)
+        self.heads = nn.ModuleList(self.heads)
         
         self.view_slice_count = view_slice_count
         self.out_feature_divide = out_feature_divide
