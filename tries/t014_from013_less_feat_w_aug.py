@@ -95,7 +95,7 @@ def get_loaders(df, data, fold_n):
 
     print(f'Data is split into train: {len(train_df)}, and valid: {len(valid_df)}')
     
-    train_set = datasets.ThreeViewDataset(train_df, data, augment_level=0)
+    train_set = datasets.ThreeViewDataset(train_df, data, augment_level=1)
     valid_set = datasets.ThreeViewDataset(valid_df, data)
     train_loader =  DataLoader(train_set, 
                                 batch_size=config['batch_size'], 
