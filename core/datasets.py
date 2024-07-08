@@ -347,3 +347,28 @@ class ThreeViewDataset(RSNADataset):
             transformed = A.ReplayCompose.replay(replay, image=x[i].numpy())
             result[i] = transformed['image']
         return result
+
+class ThreeViewDatasetInfer(ThreeViewDataset):
+    def __getitem__(self, idx):
+        meta = dict(self.df.iloc[idx])
+        image, desc, series_id = self.get_data_ram_or_disk(meta)
+
+        result = torch.zeros(self.total_slice, 3, *self.image_size)
+        current_index = 0
+        for slice_count, one_view in zip(self.view_slice_count, VIEWS):
+            if one_view in desc:
+                volume = self._get_n_slice(slice_count, image[desc.index(one_view)])
+                volume = self._apply_augment_on_volume(volume)
+                result_view = torch.zeros(len(volume), 3, *self.image_size)
+                for i in range(len(volume)):
+                    for offset in [-1, 0, 1]:
+                        if i + offset < 0 or i + offset >= len(volume):
+                            continue
+                        result_view[i, offset + 1] = volume[i + offset]
+                result[current_index : current_index + slice_count] = result_view
+            current_index += slice_count
+
+        return {
+            'image': result.unsqueeze(0),
+            'name': meta['study_id']
+        }

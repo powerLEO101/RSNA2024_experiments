@@ -22,7 +22,8 @@ class ThreeViewModel(nn.Module):
                  in_chans=3, 
                  global_pool='avg',
                  view_slice_count=[10, 10, 20],
-                 head_dropout_rate=0.1):
+                 head_dropout_rate=0.1,
+                 out_feature_divide=2):
         super().__init__()
         base_model = timm.create_model(model_name=model_name,
                                        pretrained=True,
@@ -38,13 +39,14 @@ class ThreeViewModel(nn.Module):
         self.lstm = []
         self.heads = []
         for i in range(3):
-            self.lstm.append(nn.LSTM(in_features, in_features // 2, bidirectional=True, batch_first=True))
+            self.lstm.append(nn.LSTM(in_features, in_features // out_feature_divide, bidirectional=True, batch_first=True))
             self.heads.append(nn.Sequential(
                 nn.Dropout(head_dropout_rate),
-                nn.Linear(in_features * view_slice_count[i], 30 if i != 0 else 15)
+                nn.Linear(in_features // out_feature_divide * 2 * view_slice_count[i], 30 if i != 0 else 15)
             ))
         
         self.view_slice_count = view_slice_count
+        self.out_feature_divide = out_feature_divide
 
     def forward(self, x):
         B, S, C, X, Y = x.shape
