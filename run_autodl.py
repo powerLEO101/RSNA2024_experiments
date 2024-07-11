@@ -1,5 +1,6 @@
 jobs = [
-    'python3 tries/t015_from014_more_feat.py',
+    'python3 tries/t016_from015_per_label_loss.py',
+    'python3 tries/t017_from016_loss_weight.py',
     ]
 
 import os
