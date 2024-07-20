@@ -27,10 +27,10 @@ wandb.require('core')
 config = {
     'lr': 1e-3,
     'wd': 1e-3,
-    'epoch': 15,
+    'epoch': 10,
     'seed': 22,
     'folds': 1,
-    'batch_size': 16 if not 'LOCAL_TEST' in environ else 1,
+    'batch_size': 64 if not 'LOCAL_TEST' in environ else 1,
     'model_name': 'timm/efficientnet_b0.ra_in1k',
     'out_feature_divide': 2,
     'checkpoint_freq': 5 # no checkpoint in the middle
