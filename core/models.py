@@ -1,6 +1,7 @@
 import timm
 import torch
 import torch.nn as nn
+import segmentation_models_pytorch as smp
 
 from einops import rearrange, pack, unpack
 
@@ -118,3 +119,12 @@ class ThreeViewModel_old(nn.Module):
             return result, result_co
         else:
             return result
+
+class SegmentationModel(nn.Module):
+    def __init__(self):
+        super().__init__()
+        backbone = smp.Unet('resnet18', classes=10)
+        self.backbone = backbone
+    
+    def forward(self, x):
+        return self.backbone(x)
