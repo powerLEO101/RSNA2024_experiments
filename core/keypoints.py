@@ -212,7 +212,7 @@ class SegmentDataset(Dataset):
                  df_co, 
                  data,
                  augment_level=0,
-                 rough_pos_factor=0,
+                 rough_pos_factor=1,
                  image_size=[256, 256],
                  length=25):
 
@@ -250,7 +250,8 @@ class SegmentDataset(Dataset):
         result = self.augment(image=image.numpy().astype('f'), keypoints=meta['keypoints'])
         image = result['image']
         image = torch.cat([image] * 3, dim=0)
-        keypoints = torch.tensor([[int(x[0]), int(x[1])] for x in result['keypoints']])
+        keypoints = torch.tensor([[int(x[0] // self.rough_pos_factor), int(x[1] // self.rough_pos_factor)] \
+                                  for x in result['keypoints']])
         # masks = []
         # for y, x in keypoints: # positions are inverted in numpy axis
         #     masks.append(mask_from_keypoint(x, y, self.length, *self.image_size))

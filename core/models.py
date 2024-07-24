@@ -121,10 +121,17 @@ class ThreeViewModel_old(nn.Module):
             return result
 
 class SegmentationModel(nn.Module):
-    def __init__(self):
+    def __init__(self, pool_kernel_size=None):
         super().__init__()
         backbone = smp.Unet('resnet18', classes=10)
         self.backbone = backbone
+        if pool_kernel_size is None:
+            self.pool = None
+        else:
+            self.pool = nn.AvgPool2d(kernel_size=pool_kernel_size)
     
     def forward(self, x):
-        return self.backbone(x)
+        x = self.backbone(x)
+        if self.pool is not None:
+            x = self.pool(x)
+        return x
