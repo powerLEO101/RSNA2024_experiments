@@ -1,5 +1,5 @@
 jobs = [
-    'python3 tries/t018_from000_segmentation.py',
+    'python3 tries/t019_from018_segmentation_rough_pos_more_epoch.py',
     ]
 
 import os
