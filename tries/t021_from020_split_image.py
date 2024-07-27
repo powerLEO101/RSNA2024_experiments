@@ -113,9 +113,9 @@ class SegmentDataset(Dataset):
     def __getitem__(self, idx):
         meta = dict(self.df_co.iloc[idx])
 
-        result = self.resize(image=self._get_slice(meta).numpy().astype('f'), keypoints=[[int(meta['y']), int(meta['x'])]])
+        result = self.resize(image=self._get_slice(meta).numpy().astype('f'), keypoints=[[int(meta['x']), int(meta['y'])]])
         x, y = [int(i) for i in result['keypoints'][0]]
-        image = result['image'][max(x - self.window_len, 0) : x + self.window_len, :]
+        image = result['image'][max(y - self.window_len, 0) : y + self.window_len, :]
         image = self.augment(image=image)['image']
         image = torch.cat([image] * 3, dim=0)
         
