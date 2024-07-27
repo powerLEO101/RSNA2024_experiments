@@ -115,7 +115,7 @@ class SegmentDataset(Dataset):
 
         result = self.resize(image=self._get_slice(meta).numpy().astype('f'), keypoints=[[int(meta['y']), int(meta['x'])]])
         x, y = [int(i) for i in result['keypoints'][0]]
-        image = result['image'][x - self.window_len : x + self.window_len, :]
+        image = result['image'][max(x - self.window_len, 0) : x + self.window_len, :]
         image = self.augment(image=image)['image']
         image = torch.cat([image] * 3, dim=0)
         
