@@ -49,7 +49,9 @@ class RSNAModel(nn.Module):
     def __init__(self, model_name):
         super().__init__()
         base_model = timm.create_model(model_name=model_name,
-                                       pretrained=True)
+                                       pretrained=True,
+                                       drop_rate=0.3,
+                                       drop_path_rate=0.3)
         try:
             in_features = base_model.fc.in_features
         except:
@@ -58,7 +60,8 @@ class RSNAModel(nn.Module):
         layers = list(base_model.children())[:-2]
         self.encoder = nn.Sequential(*layers)
         self.global_pool = nn.AdaptiveAvgPool2d(1)
-        self.cls_head = nn.Linear(in_features, 3)
+        self.cls_head = nn.Sequential(nn.Dropout(p=0.5), 
+                                      nn.Linear(in_features, 3))
     
     def forward(self, x):
         batch_size = x.shape[0]
