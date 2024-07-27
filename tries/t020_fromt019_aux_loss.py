@@ -71,8 +71,8 @@ class PerLevelCrossEntropyLoss(nn.Module):
         for p, l, h in zip(pred, label, have_label):
             real_pred.append(p[h])
             real_label.append(l[h])
-        real_pred = torch.stack(real_pred, dim=0)
-        real_label = torch.stack(real_label, dim=0) # batch_size, have_label_size, 3
+        real_pred = torch.cat(real_pred, dim=0)
+        real_label = torch.cat(real_label, dim=0) # batch_size * have_label_size, 3
         return self.loss(real_pred, real_label)
 
 class PerLevelTwoWayLoss(nn.Module):
