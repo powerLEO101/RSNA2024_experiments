@@ -57,7 +57,7 @@ class PerLevelDiceLoss(nn.Module):
         self.image_size = image_size
         self.device = device
 
-    def forward(self, preds, labels, have_labels):
+    def forward(self, preds, labels, have_labels): # possible slow because need to process one by one in batch?
         loss = []
         for pred, label, have_label in zip(preds, labels, have_labels):
             pred = pred[have_label]

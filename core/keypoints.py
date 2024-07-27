@@ -10,7 +10,7 @@ from tqdm import tqdm
 from os import environ
 from torch.utils.data import Dataset
 from torchvision.transforms import v2
-from sklearn.model_selection import KFold
+from sklearn.model_selection import KFold, GroupKFold
 from .project_paths import base_path
 from albumentations.pytorch import ToTensorV2
 from .utils import display_images, scale_normalize
@@ -157,7 +157,14 @@ def get_verdict(meta, meta_file, weights=[1, 2, 4]):
     return verdict
 
 
-def get_df_co(df_co):
+def query_condition(condition, l, study_id, df):
+    condition_full = '_'.join([condition.lower().replace(' ', '_'), l.lower().replace('/', '_')])
+    shortlist = df[df['study_id'] == study_id].iloc[0]
+    result = [0] * 3
+    result[shortlist[condition_full]] = 1
+    return result
+
+def get_df_co(df_co, df):
     # only sagittal view
     only_sagittal = []
     for s, id in df_co[['study_id', 'series_id']].values:
@@ -178,6 +185,7 @@ def get_df_co(df_co):
             condition = sub_df2.iloc[0]['condition']
             coors = [[0, 0]] * 10
             have_keypoints = [False] * 10
+            label = [[0, 0, 0]] * 10
 
             if 'Spinal' in condition:
                 for idx, l in enumerate(levels):
@@ -185,6 +193,7 @@ def get_df_co(df_co):
                     if len(tmp) == 0:
                         continue
                     tmp = tmp.iloc[0]
+                    label[idx] = query_condition(condition, l, tmp['study_id'], df)
                     coors[idx] = [int(tmp['x']), int(tmp['y'])]
                     have_keypoints[idx] = True
             if 'Neural' in condition:
@@ -193,16 +202,17 @@ def get_df_co(df_co):
                     if len(tmp) == 0:
                         continue
                     tmp = tmp.iloc[0]
+                    label[idx + 5] = query_condition(condition, l, tmp['study_id'], df)
                     coors[idx + 5] = [int(tmp['x']), int(tmp['y'])]
                     have_keypoints[idx + 5] = True
             
             study_id = sub_df2.iloc[0]['study_id']
 
-            new_df_co.append([study_id, series_id, instance_number, coors, have_keypoints])
+            new_df_co.append([study_id, series_id, instance_number, label, coors, have_keypoints])
 
-    new_df_co = pd.DataFrame(new_df_co, columns=['study_id', 'series_id', 'instance_number', 'keypoints', 'have_keypoints'])
-    folds = KFold(n_splits=5, shuffle=True, random_state=kfold_random_seed)
-    for fold, (train_index, valid_index) in enumerate(folds.split(new_df_co)):
+    new_df_co = pd.DataFrame(new_df_co, columns=['study_id', 'series_id', 'instance_number', 'label', 'keypoints', 'have_keypoints'])
+    folds = GroupKFold(n_splits=5) # does not accept random state
+    for fold, (train_index, valid_index) in enumerate(folds.split(new_df_co, groups=new_df_co['study_id'])):
         new_df_co.loc[valid_index, 'fold'] = int(fold)
     return new_df_co
 

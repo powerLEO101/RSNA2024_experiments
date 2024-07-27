@@ -135,3 +135,23 @@ class SegmentationModel(nn.Module):
         if self.pool is not None:
             x = self.pool(x)
         return x
+
+class RSNAModel(nn.Module):
+    def __init__(self, model_name):
+        base_model = timm.create_model(model_name=model_name,
+                                       pretrained=True)
+        try:
+            in_features = base_model.fc.in_features
+        except:
+            in_features = base_model.classifier.in_features
+        
+        layers = list(base_model.children())[:-2]
+        self.encoder = nn.Sequential(*layers)
+        self.cls_head = nn.Linear(in_features, 75)
+        self.reg_head = nn.Linear(in_features, 10)
+    
+    def forward(self, x):
+        x = self.encoder(x)
+        cls = self.cls_head(x)
+        reg = self.reg_head(x)
+        return cls, reg
