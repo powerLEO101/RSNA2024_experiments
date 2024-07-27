@@ -146,7 +146,7 @@ def generate_weights(meta, desc, weights=[1, 2, 4]):
     result = result / result.sum()
     return result
         
-def get_verdict(meta, meta_file, weights=[1, 2, 4]):
+def get_verdict(meta, meta_file, weights=[1., 2., 4.]):
     weights = {idx: x for idx, x in enumerate(weights)}
     study_id = meta['study_id']
     label_name = f"{meta['condition'].replace(' ', '_')}_{meta['level'].replace('/','_')}".lower()
@@ -163,6 +163,20 @@ def query_condition(condition, l, study_id, df):
     result = [0] * 3
     result[shortlist[condition_full]] = 1
     return result
+
+def get_only_sagittal_df_co_w_fold(df_co):
+    only_sagittal = []
+    for s, id in df_co[['study_id', 'series_id']].values:
+        d = find_description(s, id)
+        if 'Axial' in d:
+            only_sagittal.append(False)
+        else:
+            only_sagittal.append(True)
+    new_df_co = df_co[only_sagittal].reset_index(drop=True)
+    folds = GroupKFold(n_splits=5) # does not accept random state
+    for fold, (train_index, valid_index) in enumerate(folds.split(new_df_co, groups=new_df_co['study_id'])):
+        new_df_co.loc[valid_index, 'fold'] = int(fold)
+    return new_df_co
 
 def get_df_co(df_co, df):
     # only sagittal view
