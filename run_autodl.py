@@ -1,5 +1,5 @@
 jobs = [
-    'python3 tries/t021_from020_split_image.py',
+    'python3 tries/t022_from021_regulation.py',
     ]
 
 import os
