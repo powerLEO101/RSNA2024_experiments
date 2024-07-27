@@ -189,11 +189,10 @@ def valid_one_epoch(model, loader, criterion, optimizer, lr_scheduler, epoch, ac
     for step, batch in bar:
         # B C X Y
         image = batch['image']
-        label = [batch['loc'], batch['label']]
-        have_label = batch['have_keypoints']
+        label = batch['label']
         with torch.no_grad():
             pred_label = model(image)
-        loss, mse_loss, cls_loss = criterion(pred_label, label, have_label)
+        loss = criterion(pred_label, label)
         running_loss += (loss.item() - running_loss) / (step + 1)
         bar.set_postfix_str(f'Epoch: {epoch}, valid_loss: {running_loss}')
         accelerator.free_memory()
