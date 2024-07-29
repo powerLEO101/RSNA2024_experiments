@@ -31,9 +31,9 @@ wandb.require('core')
 config = {
     'lr': 1e-3,
     'wd': 5e-2,
-    'epoch': 5,
+    'epoch': 8,
     'seed': 22,
-    'folds': 8,
+    'folds': 5,
     'batch_size': 128 if not 'LOCAL_TEST' in environ else 1,
     'model_name': 'timm/efficientnet_b0.ra_in1k',
     'out_feature_divide': 2,
