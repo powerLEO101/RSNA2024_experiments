@@ -3,8 +3,8 @@ import sys
 import timm
 import torch
 import wandb
-import numpy as np
 import torch.nn as nn
+import numpy as np
 import albumentations as A
 import torch.optim as optim
 
@@ -19,6 +19,7 @@ import core.losses as losses
 
 from tqdm import tqdm
 from os import environ
+from einops import rearrange
 from accelerate.utils import set_seed
 from accelerate import Accelerator
 from albumentations.pytorch import ToTensorV2
@@ -30,23 +31,39 @@ wandb.require('core')
 
 config = {
     'lr': 1e-3,
-    'wd': 5e-2,
-    'epoch': 5,
+    'wd': 1e-3,
+    'epoch': 10,
     'seed': 22,
     'folds': 5,
     'batch_size': 128 if not 'LOCAL_TEST' in environ else 1,
     'model_name': 'timm/efficientnet_b0.ra_in1k',
     'out_feature_divide': 2,
-    'checkpoint_freq': 10
+    'checkpoint_freq': 5 
 }
 file_name = os.path.basename(__file__)[:-3]
 accelerator = Accelerator()
 device = accelerator.device
 
 #%% LOSS
+class PerLevelCrossEntropyLoss(nn.Module):
+    def __init__(self, weight=None):
+        super().__init__()
+        if weight is not None:
+            self.loss = nn.CrossEntropyLoss(weight=weight)
+        else:
+            self.loss = nn.CrossEntropyLoss()
+    
+    def forward(self, pred, label, have_label):
+        real_pred, real_label = [], []
+        for p, l, h in zip(pred, label, have_label):
+            real_pred.append(p[h])
+            real_label.append(l[h])
+        real_pred = torch.cat(real_pred, dim=0)
+        real_label = torch.cat(real_label, dim=0) # batch_size * have_label_size, 3
+        return self.loss(real_pred, real_label)
 
 #%% MODEL
-class RSNAModel(nn.Module):
+class LevelModel(nn.Module):
     def __init__(self, model_name):
         super().__init__()
         base_model = timm.create_model(model_name=model_name,
@@ -63,13 +80,52 @@ class RSNAModel(nn.Module):
         self.global_pool = nn.AdaptiveAvgPool2d(1)
         self.cls_head = nn.Sequential(nn.Dropout(p=0.5), 
                                       nn.Linear(in_features, 3))
+        self.in_features = in_features
     
     def forward(self, x):
         batch_size = x.shape[0]
         x = self.encoder(x)
         x = self.global_pool(x).view(batch_size, -1)
-        cls = self.cls_head(x)
-        return cls
+        return x
+
+class RSNA2dModel(nn.Module):
+    def __init__(self, model_name, fold_n, total_level=16, supervise_level=False, freeze_encoder=True):
+        super().__init__()
+        self.supervise_level = supervise_level
+        self.total_level = total_level
+        self.freeze_encoder = freeze_encoder
+
+        self.encoder = LevelModel(model_name)
+        if IS_LOCAL:
+            self.encoder.load_state_dict(torch.load('/Users/leo101/Downloads/t022_from021_regulation_0_4.pt', map_location='cpu'), strict=False)
+        else:
+            self.encoder.load_state_dict(torch.load('/root/autodl-fs/t023_from022_more_aug_norm.pt')[fold_n], strict=False)
+        self.encoder.requires_grad_(not self.freeze_encoder)
+        self.lstm = nn.LSTM(input_size=self.encoder.in_features, 
+                            hidden_size=self.encoder.in_features,
+                            num_layers=2,
+                            batch_first=True)
+        self.cls_head = nn.Linear(self.encoder.in_features, 30)
+        self.level_head = nn.Linear(self.encoder.in_features, 5)
+    
+    def forward(self, x):
+        '''
+            Accepts batched serieses of split images. Needs padding (shoud pad at the front?)
+        '''
+
+        assert self.total_level == x.shape[1]
+
+        batch_size = x.shape[0]
+        x = rearrange(x, 'b s c x y -> (b s) c x y')
+        x = self.encoder(x) # B * S FN
+        x = rearrange(x, '(b s) f -> b s f', b=batch_size)
+        x, _ = self.lstm(x)
+        cls = self.cls_head(x[:, -1, :]).view(batch_size, -1, 3)
+        if self.supervise_level:
+            level = self.level_head(x)
+            return cls, level
+        else:
+            return cls
 
 #%% DATASET
 class SegmentDataset(Dataset):
@@ -79,38 +135,34 @@ class SegmentDataset(Dataset):
                  data,
                  augment_level=0,
                  window_len=32,
-                 window_var=10,
+                 step_size=15,
+                 total_level=16,
                  image_size=[256, 256],
-                 image_size1=[128, 256],
-                 length=25):
+                 image_size1=[128, 256]):
 
         super().__init__()
         self.augment_level = augment_level
-        self.window_len = int(window_len // 2)
         self.df = df
         self.df_co = df_co
         self.data = data
         self.image_size = image_size
         self.image_size1 = image_size1
-        self.length = length
-        self.window_var = window_var
+        self.window_len = int(window_len // 2)
+        self.step_size = step_size
+        self.total_level = total_level
 
-        self.resize = A.Compose([
-            A.Resize(*self.image_size),],
-            keypoint_params=A.KeypointParams(format='xy', remove_invisible=False))
+        self.resize = A.Resize(*self.image_size)
         if self.augment_level == 0:
-            self.augment = A.ReplayCompose([
-                A.Resize(*self.image_size1),
-                ToTensorV2()])
+            self.augment = A.Compose([
+                A.Resize(*self.image_size1)])
                 #keypoint_params=A.KeypointParams(format='xy', remove_invisible=False))
         elif self.augment_level == 1:
-            self.augment = A.ReplayCompose([
+            self.augment = A.Compose([
                 A.Resize(*self.image_size1),
                 A.Perspective(p=0.5),
                 A.HorizontalFlip(p=0.5),
                 A.VerticalFlip(p=0.5),
-                A.Rotate(p=0.5, limit=(-25, 25)),
-                ToTensorV2()])
+                A.Rotate(p=0.5, limit=(-25, 25))])
                 #keypoint_params=A.KeypointParams(format='xy', remove_invisible=False))
 
     def __len__(self):
@@ -119,32 +171,28 @@ class SegmentDataset(Dataset):
     def __getitem__(self, idx):
         meta = dict(self.df_co.iloc[idx])
 
-        result = self.resize(image=self._get_slice(meta).numpy().astype('f'), keypoints=[[int(meta['x']), int(meta['y'])]])
-        x, y = [int(i) for i in result['keypoints'][0]]
-        y = max(0, y + np.random.randint(-self.window_var, self.window_var + 1))
-        image = result['image'][max(y - self.window_len, 0) : y + self.window_len, :]
-        image = self.augment(image=image)['image']
-        image = torch.cat([image] * 3, dim=0)
-        
-        label = self._query_condition(meta)
-        label = torch.tensor(label, dtype=torch.float32)
-        
+        image = self._get_slice(meta)
+        image = self.resize(image=image.numpy().astype('f'))['image']
+
+        images = []
+        for i in range(0, image.shape[0], self.step_size):
+            if i + self.step_size > image.shape[0]:
+                break
+            images.append(image[i : i + self.step_size, :])
+        images_full = []
+        for idx, i in enumerate(np.arange(0, len(images), len(images) / self.total_level)):
+            images_full.append(images[int(i)].copy())
+        images_full = self.augment(images=images_full)['images']
+        images_full = torch.stack([torch.tensor(x, dtype=torch.float32) for x in images_full], dim=0)
+        images_full = torch.stack([images_full] * 3, dim=1)
+
         return {
-            'image': image,
-            'label': label
+            'image': images_full,
+            'label': torch.tensor(meta['label'], dtype=torch.float32),
+            #'masks': masks,
+            'have_label': torch.tensor(meta['have_keypoints'])
         }
     
-    def _query_condition(self, meta):
-        condition = meta['condition']
-        study_id = meta['study_id']
-        l = meta['level']
-
-        condition_full = '_'.join([condition.lower().replace(' ', '_'), l.lower().replace('/', '_')])
-        shortlist = self.df[self.df['study_id'] == study_id].iloc[0]
-        result = [0] * 3
-        result[shortlist[condition_full]] = 1
-        return result
-
     def _get_slice(self, meta):
         volumes, desc, s_ids = self._get_data_ram_or_disk(meta)
         volume = volumes[s_ids.index(str(meta['series_id']))]
@@ -153,7 +201,7 @@ class SegmentDataset(Dataset):
     
     def _get_data_ram_or_disk(self, meta):
         if isinstance(self.data[meta['study_id']], str):
-            return keypoints.dicom_to_3d_tensors(self.data[meta['study_id']])
+            return datasets.dicom_to_3d_tensors(self.data[meta['study_id']])
         else:
             return self.data[meta['study_id']]
 
@@ -167,9 +215,10 @@ def train_one_epoch(model, loader, criterion, optimizer, lr_scheduler, epoch, ac
         # B C X Y
         image = batch['image']
         label = batch['label']
+        have_label = batch['have_label']
         optimizer.zero_grad()
         pred_labels = model(image)
-        loss = criterion(pred_labels, label)
+        loss = criterion(pred_labels, label, have_label)
         running_loss += (loss.item() - running_loss) / (step + 1)
         accelerator.backward(loss)
         optimizer.step()
@@ -198,9 +247,10 @@ def valid_one_epoch(model, loader, criterion, optimizer, lr_scheduler, epoch, ac
         # B C X Y
         image = batch['image']
         label = batch['label']
+        have_label = batch['have_label']
         with torch.no_grad():
             pred_label = model(image)
-        loss = criterion(pred_label, label)
+        loss = criterion(pred_label, label, have_label)
         running_loss += (loss.item() - running_loss) / (step + 1)
         bar.set_postfix_str(f'Epoch: {epoch}, valid_loss: {running_loss}')
         accelerator.free_memory()
@@ -213,11 +263,11 @@ def valid_one_epoch(model, loader, criterion, optimizer, lr_scheduler, epoch, ac
             })
 
 def train_one_fold(train_loader, valid_loader, fold_n):
-    model = RSNAModel(model_name=config['model_name'])
+    model = RSNA2dModel(model_name=config['model_name'], fold_n=fold_n)
     accelerator.print(f'Training for {file_name} on FOLD #{fold_n}...')
-    criterion = nn.CrossEntropyLoss()
+    criterion = PerLevelCrossEntropyLoss(torch.tensor([1., 2., 4.], device=device))
     optimizer = optim.AdamW(model.parameters(), lr=config['lr'], weight_decay=config['wd'])
-    lr_scheduler = get_cosine_schedule_with_warmup(optimizer, len(train_loader), len(train_loader) * config['epoch'], num_cycles=0.3)
+    lr_scheduler = get_cosine_schedule_with_warmup(optimizer, len(train_loader), len(train_loader) * config['epoch'])
     model, optimizer, train_loader, valid_loader, lr_scheduler, criterion = \
         accelerator.prepare(model, optimizer, train_loader, valid_loader, lr_scheduler, criterion)
 
@@ -275,15 +325,15 @@ def get_loaders(df, df_co, data, fold_n):
     train_set = SegmentDataset(df, train_df, data, augment_level=1)
     valid_set = SegmentDataset(df, valid_df, data, augment_level=0)
 
-    weights = []
-    weight_multiplier = [1., 2., 4.]
-    for element in train_set:
-        weights.append(weight_multiplier[element['label'].tolist().index(1)])
-    weighted_sampler = WeightedRandomSampler(weights=weights, num_samples=len(train_set))
+    # weights = []
+    # weight_multiplier = [1., 2., 4.]
+    # for element in train_set:
+    #     weights.append(weight_multiplier[element['label'].tolist().index(1)])
+    # weighted_sampler = WeightedRandomSampler(weights=weights, num_samples=len(train_set))
 
     train_loader =  DataLoader(train_set, 
                                 batch_size=config['batch_size'], 
-                                sampler=weighted_sampler,
+                                shuffle=True,
                                 num_workers=12 if not 'LOCAL_TEST' in environ else 4, 
                                 pin_memory=False)
     valid_loader = DataLoader(valid_set, 
@@ -298,12 +348,20 @@ def get_loaders(df, df_co, data, fold_n):
 def main(): 
     set_seed(config['seed'])
     df = datasets.get_df()
-    df_co = keypoints.df_label_co
+    df_co = keypoints.df_label_co.copy()
     df_co = df_co[df_co['study_id'].isin(df['study_id'])].reset_index(drop=True)
-    df_co = keypoints.get_only_sagittal_df_co_w_fold(df_co)
+    df_co = keypoints.get_df_co(df_co, df)
+
+
+    df_co_ = keypoints.df_label_co.copy()
+    df_co_ = df_co_[df_co_['study_id'].isin(df['study_id'])].reset_index(drop=True)
+    df_co_ = keypoints.get_only_sagittal_df_co_w_fold(df_co_)
+    old_df_co_folds = {s: f for s, f in df_co_[['study_id', 'fold']].values}
+    df_co['fold'] = df_co['study_id'].apply(old_df_co_folds.get)
+
     if not IS_LOCAL:
         df_co.to_csv(f'./{file_name}_df_co.csv', index=False)
-    data = datasets.get_data(df, drop_rate=0.2)
+    data = datasets.get_data(df, drop_rate=0.1)
     save_weights = []
     for fold_n in range(config['folds']):
         train_loader, valid_loader = get_loaders(df, df_co, data, fold_n)

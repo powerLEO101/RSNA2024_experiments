@@ -1,5 +1,5 @@
 jobs = [
-    'python3 tries/t023_from022_more_aug_norm.py',
+    'python3 tries/t024_from021_followup_lstm.py',
     ]
 
 import os
