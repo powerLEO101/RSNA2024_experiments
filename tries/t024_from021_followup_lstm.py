@@ -35,7 +35,7 @@ config = {
     'epoch': 10,
     'seed': 22,
     'folds': 5,
-    'batch_size': 128 if not 'LOCAL_TEST' in environ else 1,
+    'batch_size': 32 if not 'LOCAL_TEST' in environ else 1,
     'model_name': 'timm/efficientnet_b0.ra_in1k',
     'out_feature_divide': 2,
     'checkpoint_freq': 5 
@@ -361,7 +361,7 @@ def main():
 
     if not IS_LOCAL:
         df_co.to_csv(f'./{file_name}_df_co.csv', index=False)
-    data = datasets.get_data(df, drop_rate=0.1)
+    data = datasets.get_data(df, drop_rate=0.2)
     save_weights = []
     for fold_n in range(config['folds']):
         train_loader, valid_loader = get_loaders(df, df_co, data, fold_n)
