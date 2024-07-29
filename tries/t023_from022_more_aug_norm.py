@@ -148,7 +148,8 @@ class SegmentDataset(Dataset):
     def _get_slice(self, meta):
         volumes, desc, s_ids = self._get_data_ram_or_disk(meta)
         volume = volumes[s_ids.index(str(meta['series_id']))]
-        return volume[int(meta['instance_number'])].unsqueeze(-1)
+        v_min, v_max = volume.min(), volume.max()
+        return (volume[int(meta['instance_number'])] - v_min) / (v_max - v_min + 0.00001)
     
     def _get_data_ram_or_disk(self, meta):
         if isinstance(self.data[meta['study_id']], str):
