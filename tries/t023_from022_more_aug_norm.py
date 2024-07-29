@@ -33,7 +33,7 @@ config = {
     'wd': 5e-2,
     'epoch': 5,
     'seed': 22,
-    'folds': 5,
+    'folds': 8,
     'batch_size': 128 if not 'LOCAL_TEST' in environ else 1,
     'model_name': 'timm/efficientnet_b0.ra_in1k',
     'out_feature_divide': 2,
