@@ -32,9 +32,9 @@ wandb.require('core')
 config = {
     'lr': 1e-3,
     'wd': 1e-3,
-    'epoch': 10,
+    'epoch': 20,
     'seed': 22,
-    'folds': 5,
+    'folds': 1,
     'batch_size': 32 if not 'LOCAL_TEST' in environ else 1,
     'model_name': 'timm/efficientnet_b0.ra_in1k',
     'out_feature_divide': 2,
@@ -267,7 +267,7 @@ def train_one_fold(train_loader, valid_loader, fold_n):
     accelerator.print(f'Training for {file_name} on FOLD #{fold_n}...')
     criterion = PerLevelCrossEntropyLoss(torch.tensor([1., 2., 4.], device=device))
     optimizer = optim.AdamW(model.parameters(), lr=config['lr'], weight_decay=config['wd'])
-    lr_scheduler = get_cosine_schedule_with_warmup(optimizer, len(train_loader), len(train_loader) * config['epoch'])
+    lr_scheduler = get_cosine_schedule_with_warmup(optimizer, len(train_loader), len(train_loader) * config['epoch'], 0.3)
     model, optimizer, train_loader, valid_loader, lr_scheduler, criterion = \
         accelerator.prepare(model, optimizer, train_loader, valid_loader, lr_scheduler, criterion)
 
