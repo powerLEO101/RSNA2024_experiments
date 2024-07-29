@@ -62,6 +62,35 @@ class PerLevelCrossEntropyLoss(nn.Module):
         real_label = torch.cat(real_label, dim=0) # batch_size * have_label_size, 3
         return self.loss(real_pred, real_label)
 
+class LevelLoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.BCEWithLogitsLoss()
+    
+    def forward(self, pred, label):
+        pred = rearrange(pred, 'b l f -> (b l) f')
+        label = rearrange(label, 'b l f -> (b l) f')
+        is_keep = []
+        for i in label:
+            if i.sum() == 0:
+                is_keep.append(False)
+            else:
+                is_keep.append(True)
+        pred = pred[is_keep]
+        label = label[is_keep]
+        return self.loss(pred, label)
+
+class TwoWayLoss(nn.Module):
+    def __init__(self, weight=None):
+        super().__init__()
+        self.ce_loss = PerLevelCrossEntropyLoss(weight=weight)
+        self.level_loss = LevelLoss()
+    
+    def forward(self, pred, label, have_label):
+        loss1 = self.ce_loss(pred[0], label[0], have_label)
+        loss2 = self.level_loss(pred[1], label[1])
+        return loss1 + loss2, loss1, loss2
+
 #%% MODEL
 class LevelModel(nn.Module):
     def __init__(self, model_name):
@@ -89,7 +118,7 @@ class LevelModel(nn.Module):
         return x
 
 class RSNA2dModel(nn.Module):
-    def __init__(self, model_name, fold_n, total_level=16, supervise_level=False, freeze_encoder=True):
+    def __init__(self, model_name, fold_n, total_level=16, supervise_level=True, freeze_encoder=True):
         super().__init__()
         self.supervise_level = supervise_level
         self.total_level = total_level
@@ -231,11 +260,11 @@ def train_one_epoch(model, loader, criterion, optimizer, lr_scheduler, epoch, ac
     for step, batch in bar:
         # B C X Y
         image = batch['image']
-        label = batch['label']
+        label = [batch['label'], batch['level_label']]
         have_label = batch['have_label']
         optimizer.zero_grad()
         pred_labels = model(image)
-        loss = criterion(pred_labels, label, have_label)
+        loss, loss_ce, loss_level = criterion(pred_labels, label, have_label)
         running_loss += (loss.item() - running_loss) / (step + 1)
         accelerator.backward(loss)
         optimizer.step()
@@ -245,6 +274,7 @@ def train_one_epoch(model, loader, criterion, optimizer, lr_scheduler, epoch, ac
             wandb.log({
                 'lr': lr, 
                 'train_step_loss': loss.item(),
+                'train_step_ce_loss': loss_ce.item(),
                 })
         bar.set_postfix_str(f'epoch: {epoch}, lr: {lr:.2e}, train_loss: {running_loss: .4e}')
         accelerator.free_memory()
@@ -256,6 +286,7 @@ def train_one_epoch(model, loader, criterion, optimizer, lr_scheduler, epoch, ac
 
 def valid_one_epoch(model, loader, criterion, optimizer, lr_scheduler, epoch, accelerator):
     running_loss = 0.0
+    running_ce_loss = 0.0
     global global_step
     model.eval()
     bar = tqdm(enumerate(loader), total=len(loader), disable=not accelerator.is_local_main_process)
@@ -263,12 +294,13 @@ def valid_one_epoch(model, loader, criterion, optimizer, lr_scheduler, epoch, ac
     for step, batch in bar:
         # B C X Y
         image = batch['image']
-        label = batch['label']
+        label = [batch['label'], batch['level_label']]
         have_label = batch['have_label']
         with torch.no_grad():
             pred_label = model(image)
-        loss = criterion(pred_label, label, have_label)
+        loss, loss_ce, loss_level = criterion(pred_label, label, have_label)
         running_loss += (loss.item() - running_loss) / (step + 1)
+        running_ce_loss += (loss_ce.item() - running_ce_loss) / (step + 1)
         bar.set_postfix_str(f'Epoch: {epoch}, valid_loss: {running_loss}')
         accelerator.free_memory()
 
@@ -277,12 +309,13 @@ def valid_one_epoch(model, loader, criterion, optimizer, lr_scheduler, epoch, ac
     if accelerator.is_local_main_process and not IS_LOCAL:
         wandb.log({
             'valid_epoch_loss': running_loss,
+            'valid_epoch_ce_loss': running_ce_loss,
             })
 
 def train_one_fold(train_loader, valid_loader, fold_n):
     model = RSNA2dModel(model_name=config['model_name'], fold_n=fold_n)
     accelerator.print(f'Training for {file_name} on FOLD #{fold_n}...')
-    criterion = PerLevelCrossEntropyLoss(torch.tensor([1., 2., 4.], device=device))
+    criterion = TwoWayLoss(torch.tensor([1., 2., 4.], device=device))
     optimizer = optim.AdamW(model.parameters(), lr=config['lr'], weight_decay=config['wd'])
     lr_scheduler = get_cosine_schedule_with_warmup(optimizer, len(train_loader), len(train_loader) * config['epoch'], 0.3)
     model, optimizer, train_loader, valid_loader, lr_scheduler, criterion = \

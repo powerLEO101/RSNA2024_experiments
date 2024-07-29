@@ -103,7 +103,7 @@ class RSNA2dModel(nn.Module):
         self.encoder.requires_grad_(not self.freeze_encoder)
         self.lstm = nn.LSTM(input_size=self.encoder.in_features, 
                             hidden_size=self.encoder.in_features,
-                            num_layers=2,
+                            num_layers=1,
                             batch_first=True)
         self.cls_head = nn.Linear(self.encoder.in_features, 30)
         self.level_head = nn.Linear(self.encoder.in_features, 5)
@@ -220,7 +220,6 @@ class SegmentDataset(Dataset):
             return datasets.dicom_to_3d_tensors(self.data[meta['study_id']])
         else:
             return self.data[meta['study_id']]
-
 
 #%% TRAINING
 def train_one_epoch(model, loader, criterion, optimizer, lr_scheduler, epoch, accelerator):
