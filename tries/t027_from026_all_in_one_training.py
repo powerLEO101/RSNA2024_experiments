@@ -38,9 +38,9 @@ wandb.require('core')
 config = {
     'lr': 1e-3,
     'wd': 1e-3,
-    'epoch': 7,
+    'epoch': 5,
     'seed': 22,
-    'folds': 5,
+    'folds': 1,
     'batch_size': 1 if not 'LOCAL_TEST' in environ else 1,
     'model_name': 'timm/efficientnet_b0.ra_in1k',
     'out_feature_divide': 2,
@@ -92,6 +92,8 @@ class CustomLoss(nn.Module):
         losses.append(self.level_loss(pred[self.loss_names[1]], label[self.loss_names[1]]) * self.weight[1])
         losses.append(self.ce_loss(pred[self.loss_names[2]], label[self.loss_names[2]], label['slice_have_label']) * self.weight[2])
         losses.append(self.ce_loss(pred[self.loss_names[3]], label[self.loss_names[3]], None) * self.weight[3])
+        losses = torch.stack(losses, dim=0)
+        losses = torch.nan_to_num(losses)
         return sum(losses) / 4, {self.loss_names[i]: losses[i].item() for i in range(4)}
 
 #%% MODEL
