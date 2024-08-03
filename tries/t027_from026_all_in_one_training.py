@@ -1,4 +1,5 @@
 import os
+os.environ['NO_ALBUMENTATIONS_UPDATE'] = '1'
 import sys
 import timm
 import torch
@@ -23,6 +24,7 @@ from glob import glob
 from tqdm import tqdm
 from os import environ
 from einops import rearrange
+from collections import defaultdict
 from accelerate.utils import set_seed
 from accelerate import Accelerator
 from albumentations.pytorch import ToTensorV2
@@ -35,10 +37,10 @@ wandb.require('core')
 config = {
     'lr': 1e-3,
     'wd': 1e-3,
-    'epoch': 10,
+    'epoch': 7,
     'seed': 22,
     'folds': 5,
-    'batch_size': 32 if not 'LOCAL_TEST' in environ else 1,
+    'batch_size': 8 if not 'LOCAL_TEST' in environ else 1,
     'model_name': 'timm/efficientnet_b0.ra_in1k',
     'out_feature_divide': 2,
     'checkpoint_freq': 5 
@@ -54,6 +56,8 @@ class PerLevelCrossEntropyLoss(nn.Module):
         self.loss = nn.CrossEntropyLoss(weight=weight) if weight is not None else nn.CrossEntropyLoss()
     
     def forward(self, pred, label, have_label):
+        if have_label is None:
+            return self.loss(pred.view(-1, 3), label.view(-1, 3))
         have_label = have_label.flatten()
         pred = pred.view(-1, 3)[have_label]
         label = label.view(-1, 3)[have_label]
@@ -73,14 +77,21 @@ class LevelLoss(nn.Module):
         return self.loss(pred, label)
 
 class CustomLoss(nn.Module):
-    def __init__(self, weight=None):
-        ''' Loss in order of level_cls, slice_cls, slice_levels, volume_cls'''
+    def __init__(self, weight=[1, 1, 1, 1], ce_loss_weight=None):
+        ''' Loss in order of level_cls, slice_levels, slice_cls, volume_cls'''
         super().__init__()
-        self.ce_loss = PerLevelCrossEntropyLoss(weight=weight)
+        self.ce_loss = PerLevelCrossEntropyLoss(weight=ce_loss_weight)
         self.level_loss = LevelLoss()
+        self.loss_names = ['level_cls', 'slice_levels', 'slice_cls', 'volume_cls']
+        self.weight = weight
     
     def forward(self, pred, label):
-        
+        losses = []
+        losses.append(self.level_loss(pred[self.loss_names[0]], label[self.loss_names[0]]) * self.weight[0])
+        losses.append(self.level_loss(pred[self.loss_names[1]], label[self.loss_names[1]]) * self.weight[1])
+        losses.append(self.ce_loss(pred[self.loss_names[2]], label[self.loss_names[2]], label['slice_have_label']) * self.weight[2])
+        losses.append(self.ce_loss(pred[self.loss_names[3]], label[self.loss_names[3]], None) * self.weight[3])
+        return sum(losses) / 4, {self.loss_names[i]: losses[i].item() for i in range(4)}
 
 #%% MODEL
 class LevelModel(nn.Module):
@@ -109,9 +120,9 @@ class LevelModel(nn.Module):
         return x
 
 class RSNA25dModel(nn.Module):
-    def __init__(self, model_name, total_level=16):
+    def __init__(self, model_name, total_slice=16):
         super().__init__()
-        self.total_level = total_level
+        self.total_slice = total_slice
 
         self.encoder = LevelModel(model_name)
         self.lstm = nn.LSTM(input_size=self.encoder.in_features, 
@@ -129,16 +140,16 @@ class RSNA25dModel(nn.Module):
         self.volume_cls_head = nn.Linear(self.encoder.in_features, 45)
     
     def forward(self, x):
-        ''' volume: [b, n, 16, 3, 128, 256]'''
+        ''' volume: [b, n, 15, 3, 128, 256]'''
 
         x = x['volume']
-        assert self.total_level == x.shape[2]
+        assert self.total_slice == x.shape[1]
 
         batch_size = x.shape[0]
         x = rearrange(x, 'b n s c x y -> (b n s) c x y')
         x = self.encoder(x) # B * N * S IN_FEATURES
 
-        x = rearrange(x, '(b n s) f -> (b n) s f', b=batch_size, s=self.total_level)
+        x = rearrange(x, '(b n s) f -> (b n) s f', b=batch_size, n=self.total_slice)
         x_lstm, _ = self.lstm(x) # (b n) s f
         slice_levels = self.level_head(x_lstm)
         slice_cls = self.cls_head(x_lstm[:, -1, :])
@@ -171,7 +182,7 @@ class SegmentDataset(Dataset):
                  augment_level=0,
                  window_len=32,
                  step_size=16,
-                 total_level=16,
+                 total_slice=16,
                  image_size=[256, 256],
                  image_size1=[128, 256]):
 
@@ -185,7 +196,7 @@ class SegmentDataset(Dataset):
         self.image_size1 = image_size1
         self.window_len = window_len # be careful here, sometimes I divide by 2
         self.step_size = step_size
-        self.total_level = total_level
+        self.total_slice = total_slice
 
         self.resize = A.Compose([
                 A.Resize(*self.image_size)],
@@ -211,48 +222,47 @@ class SegmentDataset(Dataset):
 
         volume = []
         volume_original = []
-        slice_labels = []
-        slice_level_labels = []
+        final_slice_cls = []
+        final_slice_level = []
         slice_have_labels = []
+        final_level_cls = []
         for instance_number in range(meta['total_instance_number']):
-            labels, kps, have_label = self._query_label(meta['series_id'], instance_number)
+            slice_cls, kps, have_label = self._query_label(meta['series_id'], instance_number)
 
             image = self._get_slice(meta, instance_number)
             result = self.resize(image=image.numpy().astype('f'), keypoints=kps)
             image = result['image']
             kps = result['keypoints']
-            images, strong_labels = self._split_image(image, have_label, kps)
+            images, slice_level, level_cls = self._split_image(image, have_label, kps, slice_cls)
 
-            images_full = []
-            level_label = []
-            for idx, i in enumerate(np.arange(0, len(images), len(images) / self.total_level)):
-                images_full.append(images[int(i)].copy())
-                level_label.append(strong_labels[int(i)])
-            images_full = self.augment(images=images_full)['images']
-            images_full = torch.stack([torch.tensor(x, dtype=torch.float32) for x in images_full], dim=0)
-            images_full = torch.stack([images_full] * 3, dim=1)
+            images = self.augment(images=images)['images']
+            images = torch.stack([torch.tensor(x, dtype=torch.float32) for x in images], dim=0)
+            images = torch.stack([images] * 3, dim=1)
 
-            volume.append(images_full)
+            volume.append(images)
             volume_original.append(torch.from_numpy(image))
-            slice_labels.append(labels)
-            slice_level_labels.append(level_label)
+            final_slice_cls.append(slice_cls)
+            final_slice_level.append(slice_level)
             slice_have_labels.append(have_label)
+            final_level_cls.append(level_cls)
         
         volume = torch.stack(volume, dim=0)
         volume_original = torch.stack(volume_original, dim=0)
-        slice_labels = torch.tensor(slice_labels)
-        slice_level_labels = torch.tensor(slice_level_labels)
+        final_slice_cls = torch.tensor(final_slice_cls, dtype=torch.float32)
+        final_slice_level = torch.tensor(final_slice_level, dtype=torch.float32)
         slice_have_labels = torch.tensor(slice_have_labels)
-        volume_label = torch.tensor(self._query_volume_label(meta['study_id']))
+        final_volume_cls = torch.tensor(self._query_volume_label(meta['study_id']), dtype=torch.float32)
+        final_level_cls = torch.tensor(final_level_cls, dtype=torch.float32)
 
-        return {
+        return self._repeat_pad({
             'volume': volume,
             'volume_original': volume_original,
-            'volume_label': volume_label,
-            'slice_label': slice_labels,
-            'slice_level_label': slice_level_labels,
+            'volume_cls': final_volume_cls,
+            'slice_cls': final_slice_cls,
+            'slice_levels': final_slice_level,
+            'level_cls': final_level_cls,
             'slice_have_label': slice_have_labels
-        }
+        })
     
     def _get_slice(self, meta, instance_number):
         volume = self._get_data_ram_or_disk(meta)
@@ -285,87 +295,108 @@ class SegmentDataset(Dataset):
                 result.append(tmp)
         return result
     
-    def _split_image(self, image, have_label, kps):
-        strong_labels = []
+    def _split_image(self, image, have_label, kps, slice_labels):
+        level_labels = []
+        level_cls = []
         images = []
         for i in range(0, image.shape[0], self.step_size):
             if i + self.window_len > image.shape[0]: break
             images.append(image[i : i + self.window_len, :])
-            strong_label = [0] * 5
+            level_label = [0] * 5
+            one_level_cls = [0] * 3
             for j in range(10):
                 if have_label[j] == False: continue
                 if (kps[j][1] <= i + self.window_len) and (kps[j][1] >= i):
-                    strong_label[j % 5] = 1
-            strong_labels.append(strong_label)
-        return images, strong_labels
+                    level_label[j % 5] = 1
+                    one_level_cls = slice_labels[j]
 
-
+            level_labels.append(level_label)
+            level_cls.append(one_level_cls)
+        return images, level_labels, level_cls
+    
+    def _repeat_pad(self, x):
+        result = {
+            'volume': [],
+            'slice_cls': [],
+            'slice_levels': [],
+            'level_cls': [],
+            'slice_have_label': []
+        }
+        for i in np.arange(0, len(x['volume']), len(x['volume']) / self.total_slice):
+            for key in result.keys():
+                result[key].append(x[key][int(i)])
+        for key in result.keys():
+            result[key] = torch.stack(result[key], dim=0)
+        x.update(result)
+        return x
 
 #%% TRAINING
 def train_one_epoch(model, loader, criterion, optimizer, lr_scheduler, epoch, accelerator):
     running_loss = 0.0
+    running_losses = defaultdict(float)
     model.train()
     bar = tqdm(enumerate(loader), total=len(loader), disable=not accelerator.is_local_main_process)
 
     for step, batch in bar:
         # B C X Y
-        image = batch['image']
-        label = [batch['label'], batch['level_label']]
-        have_label = batch['have_label']
         optimizer.zero_grad()
-        pred_labels = model(image)
-        loss, loss_ce, loss_level = criterion(pred_labels, label, have_label)
-        running_loss += (loss.item() - running_loss) / (step + 1)
+        pred_labels = model(batch)
+        loss, losses = criterion(pred_labels, batch)
         accelerator.backward(loss)
         optimizer.step()
         lr_scheduler.step()
+        
         lr = optimizer.param_groups[0]['lr']
         if accelerator.is_local_main_process and not IS_LOCAL:
             wandb.log({
                 'lr': lr, 
                 'train_step_loss': loss.item(),
-                'train_step_ce_loss': loss_ce.item(),
+                **losses
                 })
+        running_loss += (loss.item() - running_loss) / (step + 1)
+        for key in losses.keys():
+            running_losses[key] += (losses[key] - running_losses[key]) / (step + 1)
+
         bar.set_postfix_str(f'epoch: {epoch}, lr: {lr:.2e}, train_loss: {running_loss: .4e}')
         accelerator.free_memory()
 
     if accelerator.is_local_main_process and not IS_LOCAL:
         wandb.log({
             'train_epoch_loss': running_loss,
+            **running_losses
             })
 
 def valid_one_epoch(model, loader, criterion, optimizer, lr_scheduler, epoch, accelerator):
     running_loss = 0.0
-    running_ce_loss = 0.0
+    running_losses = defaultdict(float)
     global global_step
     model.eval()
     bar = tqdm(enumerate(loader), total=len(loader), disable=not accelerator.is_local_main_process)
 
     for step, batch in bar:
         # B C X Y
-        image = batch['image']
-        label = [batch['label'], batch['level_label']]
-        have_label = batch['have_label']
         with torch.no_grad():
-            pred_label = model(image)
-        loss, loss_ce, loss_level = criterion(pred_label, label, have_label)
+            pred_label = model(batch)
+        loss, losses = criterion(pred_label, batch)
         running_loss += (loss.item() - running_loss) / (step + 1)
-        running_ce_loss += (loss_ce.item() - running_ce_loss) / (step + 1)
+        for key in losses.keys():
+            running_losses[key] += (losses[key] - running_losses[key]) / (step + 1)
         bar.set_postfix_str(f'Epoch: {epoch}, valid_loss: {running_loss}')
         accelerator.free_memory()
 
     accelerator.print(f'Valid loss: {running_loss}')
+    accelerator.print(running_losses)
 
     if accelerator.is_local_main_process and not IS_LOCAL:
         wandb.log({
             'valid_epoch_loss': running_loss,
-            'valid_epoch_ce_loss': running_ce_loss,
-            })
+            **running_losses
+        })
 
 def train_one_fold(train_loader, valid_loader, fold_n):
     model = RSNA25dModel(model_name=config['model_name'])
     accelerator.print(f'Training for {file_name} on FOLD #{fold_n}...')
-    criterion = TwoWayLoss(torch.tensor([1., 2., 4.], device=device))
+    criterion = CustomLoss(ce_loss_weight=torch.tensor([1., 2., 4.], device=device))
     optimizer = optim.AdamW(model.parameters(), lr=config['lr'], weight_decay=config['wd'])
     lr_scheduler = get_cosine_schedule_with_warmup(optimizer, len(train_loader), len(train_loader) * config['epoch'], 0.3)
     model, optimizer, train_loader, valid_loader, lr_scheduler, criterion = \
@@ -410,20 +441,20 @@ def train_one_fold(train_loader, valid_loader, fold_n):
 
     return model
 
-def get_loaders(df, df_co, data, fold_n):
+def get_loaders(df, df_series, df_co, data, fold_n):
     if fold_n is None:
-        train_df = df_co.copy()
-        valid_df = df_co[df_co['fold'] == 0].copy()
+        train_df = df_series.copy()
+        valid_df = df_series[df_series['fold'] == 0].copy()
     else:
-        train_df = df_co[df_co['fold'] != fold_n].copy()
-        valid_df = df_co[df_co['fold'] == fold_n].copy()
+        train_df = df_series[df_series['fold'] != fold_n].copy()
+        valid_df = df_series[df_series['fold'] == fold_n].copy()
     train_df = train_df.reset_index(drop=True)
     valid_df = valid_df.reset_index(drop=True)
 
     print(f'Data is split into train: {len(train_df)}, and valid: {len(valid_df)}')
     
-    train_set = SegmentDataset(df, train_df, data, augment_level=1)
-    valid_set = SegmentDataset(df, valid_df, data, augment_level=0)
+    train_set = SegmentDataset(df, train_df, df_co, data, augment_level=1)
+    valid_set = SegmentDataset(df, valid_df, df_co, data, augment_level=0)
 
     # weights = []
     # weight_multiplier = [1., 2., 4.]
@@ -474,7 +505,7 @@ def get_df_co(df_co, df):
             condition = sub_df2.iloc[0]['condition']
             coors = [[0, 0]] * 10
             have_keypoints = [False] * 10
-            label = [[0, 0, 0]] * 10
+            label = [[0., 0., 0.]] * 10
 
             if 'Spinal' in condition:
                 for idx, l in enumerate(levels):
@@ -518,8 +549,9 @@ def get_df_series():
     def count_files(folder):
         files = glob(f'{folder}/*.dcm')
         return len(files)
-    df_series['filepath'] = df_series.apply(lambda x: f"../input/rsna-2024-lumbar-spine-degenerative-classification/train_images/{x['study_id']}/{x['series_id']}", axis=1)
+    df_series['filepath'] = df_series.apply(lambda x: f"{project_paths.base_path}/train_images/{x['study_id']}/{x['series_id']}", axis=1)
     df_series['total_instance_number'] = df_series['filepath'].apply(count_files)
+    df_series['fold'] = df_series['study_id'].apply(fold_for_all.get)
     return df_series
 
 def main(): 
@@ -534,7 +566,7 @@ def main():
 
     save_weights = []
     for fold_n in range(config['folds']):
-        train_loader, valid_loader = get_loaders(df, df_co, data, fold_n)
+        train_loader, valid_loader = get_loaders(df, df_series, df_co, data, fold_n)
         model = train_one_fold(train_loader, valid_loader, fold_n)
         accelerator.wait_for_everyone()
         if accelerator.is_local_main_process:

@@ -1,7 +1,5 @@
 jobs = [
-    'python3 tries/t024_from021_followup_lstm.py',
-    'python3 tries/t025_from024_followup_lstm_1_level.py',
-    'python3 tries/t026_from024_followup_lstm_w_level_sup.py',
+    'python3 tries/t027_from026_all_in_one_training.py',
     ]
 
 import os

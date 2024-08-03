@@ -35,7 +35,7 @@ def find_description(study_id, series_id):
 
 def get_df():
     df = pd.read_csv(f'{base_path}/train_clean.csv')
-    df = df.fillna(-1)
+    df = df.fillna(0)
     df = df.replace({'Normal/Mild': 0, 'Moderate': 1, 'Severe': 2})
     df['filepath'] = df['study_id'].map(lambda x: f'{base_path}/train_images/{x}')
     folds = KFold(n_splits=5, shuffle=True, random_state=kfold_random_seed)
@@ -84,6 +84,26 @@ def dicom_to_3d_tensors(main_folder_path):
         series_id.append(subfolder)
     return result, desc, series_id
 
+def get_dicom_volume(subfolder_path):
+    dicom_files = [f for f in os.listdir(subfolder_path) if f.endswith('.dcm')]
+    if os.path.isfile(os.path.join(subfolder_path, 'data.pt')):
+        volume = torch.load(os.path.join(subfolder_path, 'data.pt'))
+    else:
+        dicom_files.sort(key=lambda x: int(x[:-4]))
+        first_slice = pydicom.dcmread(os.path.join(subfolder_path, dicom_files[0]))
+        img_shape = first_slice.pixel_array.shape
+        num_slices = len(dicom_files)
+        volume = torch.zeros((num_slices, *img_shape), dtype=torch.float16)
+        for i, file in enumerate(dicom_files):
+            ds = pydicom.dcmread(os.path.join(subfolder_path, file))
+            x = ds.pixel_array.astype(float)
+            if x.shape == volume.shape[1:]:
+                volume[i, :, :] = torch.tensor(x)
+            else:
+                volume = volume[:i]
+                break
+    return volume
+
 def get_data(df, drop_rate=0.1):
     print('Loading data into RAM')
     data = {}
@@ -92,6 +112,16 @@ def get_data(df, drop_rate=0.1):
             data[study_id] = filepath
         else:
             data[study_id] = dicom_to_3d_tensors(filepath)
+    return data
+
+def get_data_w_series(df, drop_rate=0.1):
+    print('Loading data into RAM')
+    data = {}
+    for filepath, series_id in tqdm(df[['filepath', 'series_id']].values):
+        if np.random.rand() < drop_rate:
+            data[series_id] = filepath
+        else:
+            data[series_id] = get_dicom_volume(filepath)
     return data
 
 def get_label(meta, label_name: str=None, drop_partial_label=False):
