@@ -257,7 +257,7 @@ class SegmentDataset(Dataset):
 
         return self._repeat_pad_reverse({
             'volume': volume,
-            'volume_original': volume_original,
+            #'volume_original': volume_original,
             'volume_cls': final_volume_cls,
             'slice_cls': final_slice_cls,
             'slice_levels': final_slice_level,
