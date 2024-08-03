@@ -4,6 +4,7 @@ import sys
 import timm
 import torch
 import wandb
+import pydicom
 import torch.nn as nn
 import numpy as np
 import pandas as pd
@@ -254,7 +255,7 @@ class SegmentDataset(Dataset):
         final_volume_cls = torch.tensor(self._query_volume_label(meta['study_id']), dtype=torch.float32)
         final_level_cls = torch.tensor(final_level_cls, dtype=torch.float32)
 
-        return self._repeat_pad({
+        return self._repeat_pad_reverse({
             'volume': volume,
             'volume_original': volume_original,
             'volume_cls': final_volume_cls,
@@ -262,7 +263,7 @@ class SegmentDataset(Dataset):
             'slice_levels': final_slice_level,
             'level_cls': final_level_cls,
             'slice_have_label': slice_have_labels
-        })
+        }, reverse=meta['reverse'])
     
     def _get_slice(self, meta, instance_number):
         volume = self._get_data_ram_or_disk(meta)
@@ -314,7 +315,7 @@ class SegmentDataset(Dataset):
             level_cls.append(one_level_cls)
         return images, level_labels, level_cls
     
-    def _repeat_pad(self, x):
+    def _repeat_pad_reverse(self, x, reverse):
         result = {
             'volume': [],
             'slice_cls': [],
@@ -326,6 +327,8 @@ class SegmentDataset(Dataset):
             for key in result.keys():
                 result[key].append(x[key][int(i)])
         for key in result.keys():
+            if reverse:
+                result[key] = result[key][::-1]
             result[key] = torch.stack(result[key], dim=0)
         x.update(result)
         return x
@@ -544,6 +547,21 @@ def get_df_co(df_co, df):
     return new_df_co
 
 def get_df_series():
+    def get_dicom_metadata(filename):
+        dcm = pydicom.dcmread(filename)
+        result = {}
+        for element in dcm:
+            if element.name == 'Pixel Data': continue
+            result[element.name] = element.value
+        return result
+    def get_neural_direction(folder_path):
+        files = glob(f'{folder_path}/*.dcm')
+        if len(files) == 0:
+            return False
+        files.sort(key=lambda x: int(x[:-4].split('/')[-1]))
+        x_position_first = get_dicom_metadata(files[0])['Image Position (Patient)'][0]
+        x_position_final = get_dicom_metadata(files[-1])['Image Position (Patient)'][0]
+        return x_position_first < x_position_final
     df_series = pd.read_csv(f'{project_paths.base_path}/train_series_descriptions.csv')
     df_series = df_series[df_series['series_description'].str.contains('Sagittal')].reset_index(drop=True)
     def count_files(folder):
@@ -552,6 +570,7 @@ def get_df_series():
     df_series['filepath'] = df_series.apply(lambda x: f"{project_paths.base_path}/train_images/{x['study_id']}/{x['series_id']}", axis=1)
     df_series['total_instance_number'] = df_series['filepath'].apply(count_files)
     df_series['fold'] = df_series['study_id'].apply(fold_for_all.get)
+    df_series['reverse'] = df_series['filepath'].apply(get_neural_direction)
     return df_series
 
 def main(): 
