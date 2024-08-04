@@ -393,9 +393,10 @@ def valid_one_epoch(model, loader, criterion, optimizer, lr_scheduler, epoch, ac
     accelerator.print(running_losses)
 
     if accelerator.is_local_main_process and not IS_LOCAL:
+        valid_running_losses = {f'valid_{k}': running_losses[k] for k in running_losses.keys()}
         wandb.log({
             'valid_epoch_loss': running_loss,
-            **running_losses
+            **valid_running_losses
         })
 
 def train_one_fold(train_loader, valid_loader, fold_n):
