@@ -72,7 +72,7 @@ class LevelLoss(nn.Module):
     def forward(self, pred, label):
         pred = rearrange(pred, 'b n l f -> (b n l) f')
         label = rearrange(label, 'b n l f -> (b n l) f')
-        is_keep = pred.sum(dim=1) != 0
+        is_keep = label.sum(dim=1) != 0
         pred = pred[is_keep]
         label = label[is_keep]
         return self.loss(pred, label)
