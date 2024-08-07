@@ -1,5 +1,4 @@
 jobs = [
-    'python3 tries/t031_from020_try_weighted_loss.py',
     'python3 tries/t032_from031_bce.py',
     ]
 
