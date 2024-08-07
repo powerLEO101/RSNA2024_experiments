@@ -1,5 +1,5 @@
 jobs = [
-    'python3 tries/t033_from032_bce_no_aux_loss.py',
+    'python3 tries/t034_from031_normalize.py',
     ]
 
 import os
