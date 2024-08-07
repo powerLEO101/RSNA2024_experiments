@@ -1,5 +1,5 @@
 jobs = [
-    'python3 tries/t029_from027_longer_epoch_low_lr_gradient_acc_high_weight_for_slice_volume_cls.py',
+    'python3 tries/t030_from029_longer_epoch.py',
     ]
 
 import os
