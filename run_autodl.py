@@ -1,5 +1,5 @@
 jobs = [
-    'python3 tries/t030_from029_longer_epoch.py',
+    'python3 tries/t031_from020_try_weighted_loss.py',
     ]
 
 import os
