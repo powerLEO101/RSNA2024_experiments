@@ -1,5 +1,5 @@
 jobs = [
-    'python3 tries/t035_from034_pretrain_coor.py',
+    'python3 tries/t036_from035_with_sigmoid.py',
     ]
 
 import os
