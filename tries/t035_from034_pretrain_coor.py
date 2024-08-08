@@ -59,7 +59,7 @@ class RegModel(nn.Module):
                                        num_classes=10)
     def forward(self, x):
         x = x['img']
-        return self.model(x)
+        return self.model(x).sigmoid()
 
 #%% DATASET
 
