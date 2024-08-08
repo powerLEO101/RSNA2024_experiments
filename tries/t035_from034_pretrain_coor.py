@@ -35,7 +35,7 @@ wandb.require('core')
 config = {
     'lr': 1e-3,
     'wd': 1e-3,
-    'epoch': 10,
+    'epoch': 15,
     'seed': 22,
     'folds': 1,
     'batch_size': 128 if not 'LOCAL_TEST' in environ else 1,
