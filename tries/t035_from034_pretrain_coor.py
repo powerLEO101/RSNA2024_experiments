@@ -171,8 +171,8 @@ def train_one_fold(train_loader, valid_loader, fold_n):
     accelerator.print(f'Training for {file_name} on FOLD #{fold_n}...')
     criterion = nn.MSELoss()
     optimizer = optim.AdamW(model.parameters(), lr=config['lr'], weight_decay=config['wd'])
-    #lr_scheduler = get_cosine_schedule_with_warmup(optimizer, len(train_loader), len(train_loader) * config['epoch'])
-    lr_scheduler = get_constant_schedule(optimizer)
+    lr_scheduler = get_cosine_schedule_with_warmup(optimizer, len(train_loader), len(train_loader) * config['epoch'])
+    #lr_scheduler = get_constant_schedule(optimizer)
     model, optimizer, train_loader, valid_loader, lr_scheduler, criterion = \
         accelerator.prepare(model, optimizer, train_loader, valid_loader, lr_scheduler, criterion)
 
