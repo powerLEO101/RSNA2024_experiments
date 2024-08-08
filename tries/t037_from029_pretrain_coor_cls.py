@@ -41,7 +41,7 @@ config = {
     'wd': 1e-3,
     'epoch': 10,
     'seed': 22,
-    'folds': 1,
+    'folds': 5,
     'batch_size': 32 if not 'LOCAL_TEST' in environ else 1,
     'model_name': 'resnet18',
     'grad_acc': 4,
@@ -88,19 +88,13 @@ class RSNAModel(nn.Module):
         return self.model(x)
 
 #%% DATASET
-
-model_path = '/Users/leo101/Downloads/t035_from034_pretrain_coor.pt' if IS_LOCAL \
-    else '/root/autodl-fs/t035_from034_pretrain_coor.pt'
-kpt_model = RegModel('resnet18')
-kpt_model.load_state_dict(torch.load(model_path)[0])
-kpt_model = kpt_model.to(device)
 class SegmentDataset(Dataset):
     def __init__(self, 
                  df,
                  df_series,
                  df_co, 
                  data,
-                 model_path,
+                 sagittal_keypoints,
                  augment_level=0,
                  image_size=[256, 256]):
 
@@ -111,6 +105,7 @@ class SegmentDataset(Dataset):
         self.df_co = df_co
         self.data = data
         self.image_size = image_size
+        self.sagittal_t2_keypoints = sagittal_keypoints
 
         if self.augment_level == 0:
             self.augment = A.Compose([
@@ -135,7 +130,7 @@ class SegmentDataset(Dataset):
         chosen_index = midpoint + np.random.randint(-2, 3)
         image = self._get_slice(meta, chosen_index).float()
 
-        masks = self._get_keypoints_pred(image)
+        masks = self._get_keypoints_pred(meta['series_id'], chosen_index)
         image = torch.from_numpy(self.augment(image=image.numpy())['image'])
         image = torch.stack([image] * 3, dim=0)
         final_image = torch.zeros(8, *self.image_size)
@@ -172,20 +167,12 @@ class SegmentDataset(Dataset):
         result = torch.tensor(result, dtype=torch.float32)
         return result
     
-    def _get_keypoints_pred(self, image):
-        image = image.float().numpy()
-        image = A.resize(image, 256, 256, cv2.INTER_AREA)
-        image = torch.from_numpy(image)
-        image = torch.stack([image] * 3, dim=0)
-        image = image.to(device)
-        with torch.no_grad():
-            pred = kpt_model(image.unsqueeze(0))
-            pred = pred.view(5, 2)
-            pred = pred.cpu().detach().numpy()
+    def _get_keypoints_pred(self, series_id, instance_number):
+        pred = self.sagittal_t2_keypoints[(series_id, instance_number)]
         result = torch.zeros(5, *self.image_size)
         for i in range(5):
             image_len = self.image_size[0]
-            posx, posy = int(pred[i][0] * image_len), int(pred[i][1] * image_len)
+            posx, posy = int(pred[i][1] * image_len), int(pred[i][0] * image_len)
             result[i, ...] = losses.mask_from_keypoint(posx, posy, 10, *self.image_size)
         return result
 
@@ -302,7 +289,7 @@ def train_one_fold(train_loader, valid_loader, fold_n):
 
     return model
 
-def get_loaders(df, df_series, df_co, data, fold_n):
+def get_loaders(df, df_series, df_co, data, sagittal_keypoints, fold_n):
     if fold_n is None:
         train_df = df_series.copy()
         valid_df = df_series[df_series['fold'] == 0].copy()
@@ -314,8 +301,8 @@ def get_loaders(df, df_series, df_co, data, fold_n):
 
     print(f'Data is split into train: {len(train_df)}, and valid: {len(valid_df)}')
     
-    train_set = SegmentDataset(df, train_df, df_co, data, model_path, augment_level=0)
-    valid_set = SegmentDataset(df, valid_df, df_co, data, model_path, augment_level=0)
+    train_set = SegmentDataset(df, train_df, df_co, data, sagittal_keypoints, augment_level=0)
+    valid_set = SegmentDataset(df, valid_df, df_co, data, sagittal_keypoints, augment_level=0)
 
     # weights = []
     # weight_multiplier = [1., 2., 4.]
@@ -440,11 +427,13 @@ def main():
     df_co = keypoints.df_label_co.copy()
     df_co = df_co[df_co['study_id'].isin(df['study_id'])].reset_index(drop=True)
     df_co = get_df_co(df_co, df)
+    sagittal_keypoints = torch.load('/Users/leo101/Downloads/sagittal_t2_keypoints.pt') if IS_LOCAL \
+        else torch.load(f'{project_paths.base_path}/sagittal_t2_keypoints.pt')
     data = datasets.get_data_w_series(df_series, drop_rate=0.2)
 
     save_weights = []
     for fold_n in range(config['folds']):
-        train_loader, valid_loader = get_loaders(df, df_series, df_co, data, fold_n)
+        train_loader, valid_loader = get_loaders(df, df_series, df_co, data, sagittal_keypoints, fold_n)
         model = train_one_fold(train_loader, valid_loader, fold_n)
         accelerator.wait_for_everyone()
         if accelerator.is_local_main_process:
