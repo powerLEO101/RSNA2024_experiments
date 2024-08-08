@@ -1,5 +1,5 @@
 jobs = [
-    'python3 tries/t034_from031_normalize.py',
+    'python3 tries/t035_from034_pretrain_coor.py',
     ]
 
 import os
