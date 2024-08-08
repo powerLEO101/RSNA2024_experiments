@@ -26,7 +26,7 @@ from accelerate import Accelerator
 from types import SimpleNamespace
 from albumentations.pytorch import ToTensorV2
 from torch.utils.data import DataLoader, Dataset
-from transformers import get_cosine_schedule_with_warmup
+from transformers import get_cosine_schedule_with_warmup, get_constant_schedule
 from sklearn.model_selection import KFold
 
 IS_LOCAL = bool('LOCAL_TEST' in environ)
@@ -35,7 +35,7 @@ wandb.require('core')
 config = {
     'lr': 5e-4,
     'wd': 1e-3,
-    'epoch': 15,
+    'epoch': 10,
     'seed': 22,
     'folds': 1,
     'batch_size': 16 if not 'LOCAL_TEST' in environ else 1,
@@ -171,7 +171,8 @@ def train_one_fold(train_loader, valid_loader, fold_n):
     accelerator.print(f'Training for {file_name} on FOLD #{fold_n}...')
     criterion = nn.MSELoss()
     optimizer = optim.AdamW(model.parameters(), lr=config['lr'], weight_decay=config['wd'])
-    lr_scheduler = get_cosine_schedule_with_warmup(optimizer, len(train_loader), len(train_loader) * config['epoch'])
+    #lr_scheduler = get_cosine_schedule_with_warmup(optimizer, len(train_loader), len(train_loader) * config['epoch'])
+    lr_scheduler = get_constant_schedule(optimizer)
     model, optimizer, train_loader, valid_loader, lr_scheduler, criterion = \
         accelerator.prepare(model, optimizer, train_loader, valid_loader, lr_scheduler, criterion)
 
