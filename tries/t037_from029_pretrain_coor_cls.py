@@ -42,13 +42,13 @@ config = {
     'epoch': 10,
     'seed': 22,
     'folds': 1,
-    'batch_size': 1 if not 'LOCAL_TEST' in environ else 1,
+    'batch_size': 32 if not 'LOCAL_TEST' in environ else 1,
     'model_name': 'resnet18',
     'grad_acc': 4,
     'checkpoint_freq': 5,
 }
 file_name = os.path.basename(__file__)[:-3]
-accelerator = Accelerator(gradient_accumulation_steps=config['grad_acc'])
+accelerator = Accelerator()
 device = accelerator.device
 
 #%% LOSS
