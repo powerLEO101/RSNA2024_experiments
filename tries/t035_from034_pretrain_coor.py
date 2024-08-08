@@ -44,7 +44,7 @@ config = {
     'checkpoint_freq': 5 # no checkpoint in the middle
 }
 file_name = os.path.basename(__file__)[:-3]
-accelerator = Accelerator()
+accelerator = Accelerator(mixed_precision='no')
 device = accelerator.device
 
 #%% LOSS
