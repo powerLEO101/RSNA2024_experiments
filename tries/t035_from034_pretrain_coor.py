@@ -33,7 +33,7 @@ IS_LOCAL = bool('LOCAL_TEST' in environ)
 wandb.require('core')
 
 config = {
-    'lr': 1e-3,
+    'lr': 5e-4,
     'wd': 1e-3,
     'epoch': 15,
     'seed': 22,
