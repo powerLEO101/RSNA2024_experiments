@@ -1,5 +1,5 @@
 jobs = [
-    'python3 tries/t041_from040_less_epoch_better_model.py',
+    'python3 tries/t042_from041_max_pool.py',
     ]
 
 import os
