@@ -1,1 +1,2 @@
 accelerate launch ./RSNA2024_experiments/tries/t043_from041_adjust_for_local_machine.py
+ls
