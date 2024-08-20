@@ -1,0 +1,1 @@
+accelerate launch t043_from041_adjust_for_local_machine.py
