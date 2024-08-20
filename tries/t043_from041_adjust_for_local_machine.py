@@ -459,7 +459,7 @@ def main():
     df_co = get_df_co(df_co, df)
     sagittal_keypoints = torch.load('/Users/leo101/Downloads/sagittal_t2_keypoints.pt') if IS_LOCAL \
         else torch.load(f'{project_paths.base_path}/sagittal_t2_keypoints.pt')
-    data = datasets.get_data_w_series(df_series, drop_rate=0.2)
+    data = datasets.get_data_w_series(df_series, drop_rate=0.0)
 
     save_weights = []
     for fold_n in range(config['folds']):
