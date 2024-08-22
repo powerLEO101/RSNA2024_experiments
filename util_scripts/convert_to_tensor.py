@@ -13,8 +13,7 @@ from torchvision.transforms import v2
 from sklearn.model_selection import KFold
 
 sys.path.append('..')
-from core.project_paths import base_path
-from core.utils import display_images
+base_path = '../../RSNA2024_input/rsna-2024-lumbar-spine-degenerative-classification'
 
 df_meta_f = pd.read_csv(f'{base_path}/train_series_descriptions.csv')
 def find_description(study_id, series_id):
@@ -28,11 +27,20 @@ def get_df():
     df['filepath'] = df['study_id'].map(lambda x: f'{base_path}/train_images/{x}')
     return df
 
+def get_dicom_metadata(filename):
+    dcm = pydicom.dcmread(filename)
+    result = {}
+    for element in dcm:
+        if element.name == 'Pixel Data': continue
+        result[element.name] = element.value
+    return result
+
 def dicom_to_3d_tensors(main_folder_path):
     result = []
     desc = []
     study_id = main_folder_path.split('/')[-1]
     for subfolder in os.listdir(main_folder_path):
+        slice_pos = []
         subfolder_path = os.path.join(main_folder_path, subfolder)
         if not os.path.isdir(subfolder_path):
             continue
@@ -47,13 +55,15 @@ def dicom_to_3d_tensors(main_folder_path):
         volume = torch.zeros((num_slices, *img_shape), dtype=torch.float16)
         for i, file in enumerate(dicom_files):
             ds = pydicom.dcmread(os.path.join(subfolder_path, file))
+            metadata = get_dicom_metadata(os.path.join(subfolder_path, file))
+            slice_pos.append(float(metadata['Image Position (Patient)'][0]))
             x = ds.pixel_array.astype(float)
             if x.shape == volume.shape[1:]:
                 volume[i, :, :] = torch.tensor(x)
             else:
                 volume = volume[:i]
                 break
-        torch.save(volume, os.path.join(subfolder_path, 'data.pt'))
+        torch.save([volume, slice_pos], os.path.join(subfolder_path, 'data.pt'))
         #print(f"{subfolder} saved on {os.path.join(subfolder_path, 'data.pt')}")
 
 df = get_df()
