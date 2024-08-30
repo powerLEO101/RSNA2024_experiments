@@ -43,7 +43,7 @@ config = {
     'seed': 22,
     'folds': 5,
     'batch_size': 8 if not 'LOCAL_TEST' in environ else 1,
-    'model_name': 'resnet18',
+    'model_name': 'efficientnet_b0.ra_in1k',
     'grad_acc': 4,
     'checkpoint_freq': 5,
 }
@@ -367,13 +367,9 @@ def valid_one_epoch(model, loader, criterion, optimizer, lr_scheduler, epoch, ac
         })
 
 def train_one_fold(train_loader, valid_loader, fold_n):
+    global ckpt
     model = RSNAModel(model_name=config['model_name'])
-    model_dict = '/media/workspace/RSNA2024_checkpoints/t047_from035_retrain.pt'
-    model_dict = torch.load(model_dict)[0]
-    model_dict = {k[7:] : v for k, v in model_dict.items()}
-    del model_dict['head.0.bias']
-    del model_dict['head.0.weight']
-    model.load_state_dict(model_dict, strict=False)
+    model.encoder.load_state_dict(ckpt[fold_n], strict=True)
     accelerator.print(f'Training for {file_name} on FOLD #{fold_n}...')
     criterion = CustomLoss()
     optimizer = optim.AdamW(model.parameters(), lr=config['lr'], weight_decay=config['wd'])
@@ -547,6 +543,11 @@ def main():
     df_series = df_series[df_series['study_id'].isin(df['study_id'])].reset_index(drop=True)
     df_co = get_df_co()
     data = get_data_w_series(df_series, drop_rate=0.0) if accelerator.is_local_main_process else {}
+    global ckpt
+    ckpt = torch.load('/media/workspace/RSNA2024_checkpoints/t052_from051_pretrain_on_loc_dataset.pt')
+    ckpt = [{k[7:] : v for k, v in one_ckpt.items()} for one_ckpt in ckpt]
+    ckpt = [{k[8:] : v for k, v in one_ckpt.items() if 'encoder' in k}for one_ckpt in ckpt]
+    print(ckpt[0].keys())
 
     save_weights = []
     for fold_n in range(config['folds']):

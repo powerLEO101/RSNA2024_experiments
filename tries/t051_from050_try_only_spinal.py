@@ -71,7 +71,7 @@ class PerLevelCrossEntropyLoss(nn.Module):
             loss = loss.mean()
             losses.append(loss)
         
-        return sum(losses) / 3, {'spinal_loss': losses[0], 'neural_loss': (losses[1] + losses[2]) / 2}
+        return losses[0], {'spinal_loss': losses[0], 'neural_loss': (losses[1] + losses[2]) / 2}
 
 class ImportanceLoss(nn.Module):
     def __init__(self):
@@ -81,6 +81,8 @@ class ImportanceLoss(nn.Module):
     def forward(self, pred, label):
         pred = pred.view(-1, 2)
         label = label.view(-1, 2)
+        pred = pred[:, 0]
+        label = label[:, 0]
         return self.loss(pred, label)
 
 class CustomLoss(nn.Module):
