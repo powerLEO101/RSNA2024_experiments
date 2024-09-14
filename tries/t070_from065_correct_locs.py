@@ -96,7 +96,7 @@ class CustomLoss(nn.Module):
     def forward(self, pred, label):
         class_loss, class_loss_dict = self.class_loss(pred[0], label['label'])
         seg_loss, seg_loss_dict = self.seg_loss(pred[1], label['locs_label_2d'])
-        return (class_loss + seg_loss), {'class_loss': class_loss, 'seg_loss': seg_loss, **class_loss_dict, **seg_loss_dict}
+        return (class_loss + seg_loss * 0.5), {'class_loss': class_loss, 'seg_loss': seg_loss, **class_loss_dict, **seg_loss_dict}
 
 
 #%% MODEL
@@ -183,14 +183,14 @@ class LocDataset(Dataset):
         self.data = {}
         self.resize = A.Compose([A.Resize(384, 384)])
         if is_infer:
-            self.augment = A.Compose([])
+            self.augment = A.ReplayCompose([], keypoint_params=A.KeypointParams(format='yx'))
         else:
-            self.augment = A.Compose([
+            self.augment = A.ReplayCompose([
                 A.Perspective(p=0.5),
-                A.HorizontalFlip(p=0.5),
-                A.VerticalFlip(p=0.5),
+                # A.HorizontalFlip(p=0.5),
+                # A.VerticalFlip(p=0.5),
                 A.Rotate(p=0.5, limit=(-25, 25))
-                ])
+                ], keypoint_params=A.KeypointParams(format='yx'))
     
     def __len__(self):
         return len(self.df)
@@ -214,10 +214,12 @@ class LocDataset(Dataset):
             locs_label.append(one_locs_label)
         select_image = torch.stack(select_image, dim=1)
         select_image = torch.cat([select_image] * 3, dim=0)
-        select_image = self._apply_augment(select_image)
         select_image = select_image.permute(1, 0, 2, 3)
         label = self._query_label(study_id)
         locs_label = torch.tensor(locs_label)
+
+        select_image, locs_label = self._apply_augment(select_image, locs_label)
+
         locs_label_2d = []
         for i in range(5):
             locs_label_2d.append(torch.stack([self._make_seg_label(*locs_label[i, 0]), self._make_seg_label(*locs_label[i, 1])], dim=0))
@@ -257,8 +259,6 @@ class LocDataset(Dataset):
         return result
     
     def _make_seg_label(self, x, y):
-        x *= 384
-        y *= 384
         def in_bound(x):
             if x < 0 or x >= 384:
                 return False
@@ -272,15 +272,21 @@ class LocDataset(Dataset):
                     result[next_x, next_y] = 1
         return result
 
-    def _apply_augment(self, image):
+    def _apply_augment(self, image, locs):
+        locs *= 384
         result = []
-        for one_image in image:
-            augmented_image = self.augment(images=one_image.numpy())['images']
+        locs_result = []
+        for one_image, one_locs in zip(image, locs):
+            #print(one_locs)
+            transformed = self.augment(image=one_image.permute(1, 2, 0).numpy(), keypoints=one_locs)
+            augmented_image, transformed_locs = transformed['image'].transpose(2, 0, 1), transformed['keypoints']
             augmented_image = torch.stack([torch.tensor(x.copy()) for x in augmented_image], dim=0)
+            locs_result.append(transformed_locs)
             result.append(augmented_image)
+        #print(locs_result)
+        locs_result = torch.tensor(locs_result)
         result = torch.stack(result, dim=0)
-        return result
-
+        return result, locs_result
 
 #%% TRAINING
 def train_one_epoch(model, loader, criterion, optimizer, lr_scheduler, epoch, accelerator):
