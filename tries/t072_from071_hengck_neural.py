@@ -659,7 +659,7 @@ def get_coordinates_from_series_id(series_id, filepath):
         locs[normalize_name(condition, level)] = [z, x / X, y / Y]
     return locs
 
-def get_df_series(filter='Sagittal T2'):
+def get_df_series(filter='Sagittal T1'):
     df_series = pd.read_csv(f'{project_paths.base_path}/train_series_descriptions.csv')
     df_series = df_series[df_series['series_description'].str.contains(filter)].reset_index(drop=True)
     def count_files(folder):
