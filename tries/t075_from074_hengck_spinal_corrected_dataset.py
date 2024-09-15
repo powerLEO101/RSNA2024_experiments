@@ -248,7 +248,7 @@ class Model(nn.Module):
             skip_channel=encoder_channels[: -1][::-1],
             out_channel=decoder_channels
         )
-        self.seg_mask_head = nn.Conv3d(decoder_channels[-1], 10, kernel_size=1)
+        self.seg_mask_head = nn.Conv3d(decoder_channels[-1], 5, kernel_size=1)
         self.grade_mask_head = nn.Conv3d(decoder_channels[-1], 128, kernel_size=1)
         self.head = nn.Sequential(
             nn.Linear(128, 128),
@@ -340,18 +340,8 @@ class RSNADataset(Dataset):
         self.df_for_label = df_for_label
         self.resize = A.Resize(384, 384)
         self.data = {}
-        self.conditions = [
-            'left_neural_foraminal_narrowing_l1_l2',
-            'left_neural_foraminal_narrowing_l2_l3',
-            'left_neural_foraminal_narrowing_l3_l4',
-            'left_neural_foraminal_narrowing_l4_l5',
-            'left_neural_foraminal_narrowing_l5_s1',
-            'right_neural_foraminal_narrowing_l1_l2',
-            'right_neural_foraminal_narrowing_l2_l3',
-            'right_neural_foraminal_narrowing_l3_l4',
-            'right_neural_foraminal_narrowing_l4_l5',
-            'right_neural_foraminal_narrowing_l5_s1'
-        ]
+        self.conditions = ['spinal_canal_stenosis_l1_l2', 'spinal_canal_stenosis_l2_l3', 'spinal_canal_stenosis_l3_l4',
+                           'spinal_canal_stenosis_l4_l5', 'spinal_canal_stenosis_l5_s1']
         self.augment = A.ReplayCompose([
             A.Perspective(p=0.5),
             # A.HorizontalFlip(p=0.5),
@@ -656,7 +646,7 @@ def get_coordinates_from_series_id(series_id, filepath):
         locs[normalize_name(condition, level)] = [z, x / X, y / Y]
     return locs
 
-def get_df_series(filter='Sagittal T1'):
+def get_df_series(filter='Sagittal T2'):
     df_series = pd.read_csv(f'{project_paths.base_path}/train_series_descriptions.csv')
     df_series = df_series[df_series['series_description'].str.contains(filter)].reset_index(drop=True)
     def count_files(folder):

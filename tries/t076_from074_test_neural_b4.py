@@ -233,7 +233,7 @@ def heatmap_to_coord(heatmap):
 class Model(nn.Module):
     def __init__(self):
         super().__init__()
-        encoder = timm.create_model(model_name='pvt_v2_b0', 
+        encoder = timm.create_model(model_name='pvt_v2_b4',
                                     pretrained=True, 
                                     in_chans=3,
                                     features_only=True)
