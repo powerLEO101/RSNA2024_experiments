@@ -45,7 +45,7 @@ config = {
     'wd': 1e-3,
     'epoch': 15,
     'seed': 22,
-    'folds': 5,
+    'folds': 3,
     'batch_size': 1 if not 'LOCAL_TEST' in environ else 1,
     'model_name': 'efficientnet_b0.ra_in1k',
     'grad_acc': 4,
