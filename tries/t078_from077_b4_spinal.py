@@ -334,7 +334,7 @@ def get_dicom_volume(subfolder_path, slice_pos_index=0, use_cache=True):
     return volume, slice_position
 
 class RSNADataset(Dataset):
-    def __init__(self, df, df_for_label):
+    def __init__(self, df, df_for_label, is_infer=False):
         super().__init__()
         self.df = df
         self.df_for_label = df_for_label
@@ -345,12 +345,17 @@ class RSNADataset(Dataset):
                            'spinal_canal_stenosis_l3_l4',
                            'spinal_canal_stenosis_l4_l5',
                            'spinal_canal_stenosis_l5_s1']
-        self.augment = A.ReplayCompose([
-            A.Perspective(p=0.5),
-            # A.HorizontalFlip(p=0.5),
-            # A.VerticalFlip(p=0.5),
-            A.Rotate(p=0.5, limit=(-25, 25))
-        ], keypoint_params=A.KeypointParams(format='yx', remove_invisible=False))
+        if is_infer:
+            self.augment = A.ReplayCompose([
+            ], keypoint_params=A.KeypointParams(format='yx', remove_invisible=False))
+        else:
+            self.augment = A.ReplayCompose([
+                A.Perspective(p=0.5),
+                # A.HorizontalFlip(p=0.5),
+                # A.VerticalFlip(p=0.5),
+                A.Rotate(p=0.5, limit=(-25, 25))
+            ], keypoint_params=A.KeypointParams(format='yx', remove_invisible=False))
+
 
     def __len__(self):
         return len(self.df)
@@ -367,6 +372,9 @@ class RSNADataset(Dataset):
         label = self._query_label(meta['study_id'])
 
         volume = torch.stack([volume] * 3, dim=1)
+        if len(volume) > 32:
+            volume = volume[ : 32]
+            seg_label = seg_label[ : 32]
 
         return {
             'study_id': meta['study_id'],
@@ -605,7 +613,7 @@ def get_loaders(df, df_for_label, fold_n):
     print(f'Data is split into train: {len(train_df)}, and valid: {len(valid_df)}')
     
     train_set = RSNADataset(train_df, df_for_label)
-    valid_set = RSNADataset(valid_df, df_for_label)
+    valid_set = RSNADataset(valid_df, df_for_label, is_infer=True)
 
     # weights = []
     # weight_multiplier = [1., 2., 4.]
@@ -676,7 +684,7 @@ def main():
     df = df[df['study_id'].isin(df_for_label['study_id'])].reset_index(drop=True)
 
     save_weights = []
-    for fold_n in range(1, config['folds']):
+    for fold_n in range(config['folds']):
         train_loader, valid_loader = get_loaders(df, df_for_label, fold_n)
         model = train_one_fold(train_loader, valid_loader, fold_n)
         accelerator.wait_for_everyone()
