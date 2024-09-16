@@ -380,7 +380,7 @@ class RSNADataset(Dataset):
         volume = torch.stack([volume] * 3, dim=1)
         if len(volume) > 32:
             volume = volume[ : 32]
-            seg_label = seg_label[ : 32]
+            seg_label = seg_label[ : , : 32]
 
         return {
             'study_id': meta['study_id'],
