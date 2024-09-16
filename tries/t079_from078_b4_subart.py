@@ -370,9 +370,9 @@ class RSNADataset(Dataset):
     def __getitem__(self, index):
         meta = self.df.iloc[index]
         volume = self._get_data_from_cache_and_disk(meta['filepath'])
-        volume = volume[meta['index_order']]
+        volume = volume[eval(meta['index_order'])]
         from copy import deepcopy
-        locs = deepcopy(meta['locs']) # !!! be careful here that locs is copied by reference from the pandas! therefore any change to locs will affect df
+        locs = deepcopy(eval((meta['locs']))) # !!! be careful here that locs is copied by reference from the pandas! therefore any change to locs will affect df
         volume, locs = self._apply_augment(volume, locs)
         seg_label, have_label = self._make_seg_label(volume, locs)
         coordinates = self._make_coordinates(locs)
