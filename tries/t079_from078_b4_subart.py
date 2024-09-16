@@ -341,7 +341,7 @@ class RSNADataset(Dataset):
         self.resize = A.Resize(384, 384)
         self.data = {}
         self.conditions = [
-            'left_subarticular_stenosis_l1_l2'
+            'left_subarticular_stenosis_l1_l2',
             'left_subarticular_stenosis_l2_l3',
             'left_subarticular_stenosis_l3_l4',
             'left_subarticular_stenosis_l4_l5',
