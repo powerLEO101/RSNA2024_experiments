@@ -43,7 +43,7 @@ wandb.require('core')
 config = {
     'lr': 1e-4,
     'wd': 1e-3,
-    'epoch': 15,
+    'epoch': 10,
     'seed': 22,
     'folds': 3,
     'batch_size': 1 if not 'LOCAL_TEST' in environ else 1,
@@ -683,7 +683,7 @@ def main():
     df = df[df['study_id'].isin(df_for_label['study_id'])].reset_index(drop=True)
 
     save_weights = []
-    for fold_n in range(config['folds']):
+    for fold_n in range(1, config['folds']):
         train_loader, valid_loader = get_loaders(df, df_for_label, fold_n)
         model = train_one_fold(train_loader, valid_loader, fold_n)
         accelerator.wait_for_everyone()
