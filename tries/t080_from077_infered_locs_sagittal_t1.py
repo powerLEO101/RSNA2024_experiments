@@ -692,6 +692,7 @@ def main():
     set_seed(config['seed'])
     #df = get_df_series()
     df = pd.read_csv('/media/workspace/RSNA2024_input/rsna-2024-lumbar-spine-degenerative-classification/t0917get_coors_sagittal_t1_df_series.csv')
+    df['fold'] = df['study_id'].apply(fold_for_all.get)
     df_for_label = datasets.get_df()
     df = df[df['study_id'].isin(df_for_label['study_id'])].reset_index(drop=True)
 
