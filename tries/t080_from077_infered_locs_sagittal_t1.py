@@ -697,7 +697,7 @@ def main():
     df = df[df['study_id'].isin(df_for_label['study_id'])].reset_index(drop=True)
 
     save_weights = []
-    for fold_n in range(1, config['folds']):
+    for fold_n in range(config['folds']):
         train_loader, valid_loader = get_loaders(df, df_for_label, fold_n)
         model = train_one_fold(train_loader, valid_loader, fold_n)
         accelerator.wait_for_everyone()
