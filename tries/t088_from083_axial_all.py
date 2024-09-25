@@ -335,12 +335,12 @@ def get_dicom_volume(subfolder_path, slice_pos_index=0, use_cache=True):
 
 
 class RSNADataset(Dataset):
-    def __init__(self, df, df_for_label, is_infer=False):
+    def __init__(self, df, df_for_label, data, is_infer=False):
         super().__init__()
         self.df = df
         self.df_for_label = df_for_label
         self.resize = A.Resize(384, 384)
-        self.data = {}
+        self.data = data
         self.conditions = [
             'left_neural_foraminal_narrowing_l1_l2',
             'left_neural_foraminal_narrowing_l2_l3',
@@ -428,8 +428,10 @@ class RSNADataset(Dataset):
             volume, _ = get_dicom_volume(filepath)
             volume_resized = [torch.from_numpy(x) for x in self.resize(images=volume.float().numpy())['images']]
             volume = torch.stack(volume_resized, dim=0)
-            upper = torch.quantile(volume, 0.995)
-            lower = torch.quantile(volume, 0.005)
+            # upper = torch.quantile(volume, 0.995)
+            # lower = torch.quantile(volume, 0.005)
+            upper = np.percentile(volume.numpy(), 99.9)
+            lower = np.percentile(volume.numpy(), 0.1)
             volume = volume.clamp(lower, upper)
             volume = (volume - volume.min()) / (volume.max() - volume.min())
             self.data[filepath] = volume.float()
@@ -647,7 +649,7 @@ def custom_collate(data):
 
     return result
 
-def get_loaders(df, df_for_label, fold_n):
+def get_loaders(df, data, df_for_label, fold_n):
     if fold_n is None:
         train_df = df.copy()
         valid_df = df[df['fold'] == 0].copy()
@@ -659,8 +661,8 @@ def get_loaders(df, df_for_label, fold_n):
 
     print(f'Data is split into train: {len(train_df)}, and valid: {len(valid_df)}')
     
-    train_set = RSNADataset(train_df, df_for_label)
-    valid_set = RSNADataset(valid_df, df_for_label, is_infer=True)
+    train_set = RSNADataset(train_df, df_for_label, data)
+    valid_set = RSNADataset(valid_df, df_for_label, data, is_infer=True)
 
     # weights = []
     # weight_multiplier = [1., 2., 4.]
@@ -731,10 +733,11 @@ def main():
     df['fold'] = df['study_id'].apply(fold_for_all.get)
     df_for_label = datasets.get_df()
     df = df[df['study_id'].isin(df_for_label['study_id'])].reset_index(drop=True)
+    data = {}
 
     save_weights = []
     for fold_n in range(config['folds']):
-        train_loader, valid_loader = get_loaders(df, df_for_label, fold_n)
+        train_loader, valid_loader = get_loaders(df, data, df_for_label, fold_n)
         model = train_one_fold(train_loader, valid_loader, fold_n)
         accelerator.wait_for_everyone()
         if accelerator.is_local_main_process:
