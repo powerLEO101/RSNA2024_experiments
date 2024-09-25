@@ -394,7 +394,7 @@ class RSNADataset(Dataset):
         volume_mask_index = np.where(volume_mask)[0]
         volume_mask_new_index = {volume_mask_index[i]: i for i in range(len(volume_mask_index))}
         levels = ['l1_l2', 'l2_l3', 'l3_l4', 'l4_l5', 'l5_s1']
-        level_conditions = [condition for condition in conditions if levels[random_level] in condition]
+        level_conditions = [condition for condition in self.conditions if levels[random_level] in condition]
         new_locs = {}
         for condition in level_conditions:
             z, x, y = locs[condition]  # xy already swapped
