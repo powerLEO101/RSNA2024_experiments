@@ -385,7 +385,7 @@ class RSNADataset(Dataset):
     def __getitem__(self, index):
         meta = self.df.iloc[index]
         volume = self._get_data_from_cache_and_disk(meta['filepath'])
-        volume = volume[eval(meta['index_order'])]
+        #volume = volume[eval(meta['index_order'])]
         from copy import deepcopy
         locs = deepcopy(eval(meta['locs']))  # !!! be careful here that locs is copied by reference from the pandas! therefore any change to locs will affect df, this message is out dated
 
